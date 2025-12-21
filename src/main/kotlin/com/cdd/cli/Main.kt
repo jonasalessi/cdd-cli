@@ -13,6 +13,7 @@ import com.cdd.domain.AnalysisResult
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.options.*
+import com.github.ajalt.clikt.parameters.types.double
 import com.github.ajalt.clikt.parameters.types.enum
 import com.github.ajalt.clikt.parameters.types.file
 import com.github.ajalt.clikt.parameters.types.int
@@ -22,7 +23,7 @@ import kotlin.system.exitProcess
 class CddCli : CliktCommand(name = "cdd-cli", help = "Cognitive-Driven Development Analyzer") {
     val path by argument(help = "Directory or file to analyze").file(mustExist = true, canBeFile = true, canBeDir = true)
     
-    val limit by option(help = "ICP limit (default: 10)").int()
+    val limit by option(help = "ICP limit (default: 10)").double()
     val slocLimit by option("--sloc-limit", help = "SLOC limit for methods (default: 24)").int()
     val slocOnly by option("--sloc-only", help = "Show only SLOC analysis (no ICP)").flag(default = false)
     val format by option("--format", help = "Output format: console|json|xml|markdown (default: console)").enum<OutputFormat> { it.name.lowercase() }.default(OutputFormat.CONSOLE)

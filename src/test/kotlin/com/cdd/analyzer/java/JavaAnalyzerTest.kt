@@ -11,7 +11,7 @@ import java.io.File
 class JavaAnalyzerTest : FunSpec({
     val analyzer = JavaAnalyzer()
     val config = CddConfig(
-        limit = 10,
+        limit = 10.0,
         icpTypes = IcpType.entries.associateWith { it.defaultWeight },
         internalCoupling = InternalCouplingConfig(packages = listOf("com.example.domain"))
     )

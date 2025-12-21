@@ -64,7 +64,7 @@ data class ReportingConfig(
  */
 @Serializable
 data class CddConfig(
-    val limit: Int = 10,
+    val limit: Double = 10.0,
     val icpTypes: Map<IcpType, Double> = IcpType.entries.associateWith { it.defaultWeight },
     val classTypeLimits: Map<String, Int> = emptyMap(),
     val internalCoupling: InternalCouplingConfig = InternalCouplingConfig(),

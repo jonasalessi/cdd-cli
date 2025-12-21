@@ -26,8 +26,11 @@ object ConfigurationManager {
      */
     fun loadConfig(workingDir: File): CddConfig {
         val ymlFile = File(workingDir, ".cdd.yml")
+        val yamlFile = File(workingDir, ".cdd.yaml")
         if (ymlFile.exists()) {
             return tryLoad(ymlFile) { yaml.decodeFromString(CddConfig.serializer(), it) }
+        } else if (yamlFile.exists()) {
+            return tryLoad(yamlFile) { yaml.decodeFromString(CddConfig.serializer(), it) }
         }
 
         val jsonFile = File(workingDir, ".cdd.json")

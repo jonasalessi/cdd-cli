@@ -12,9 +12,9 @@ import java.io.File
 
 class IcpAggregatorTest : FunSpec({
     val aggregator = IcpAggregator()
-    val config = CddConfig(limit = 10)
+    val config = CddConfig(limit = 10.0)
 
-    fun createClass(name: String, icp: Double, sloc: Int, isOverLimit: Boolean = icp > 10): ClassAnalysis {
+    fun createClass(name: String, icp: Double, sloc: Int, isOverLimit: Boolean = icp > 10.0): ClassAnalysis {
         return ClassAnalysis(
             name = name,
             packageName = "com.example",
@@ -114,7 +114,7 @@ class IcpAggregatorTest : FunSpec({
         
         val aggregated = aggregator.aggregate(results, config)
         aggregated.suggestions shouldHaveSize 2
-        aggregated.suggestions[0] shouldBe "Refactor the 1 classes that exceed the ICP limit of 10."
+        aggregated.suggestions[0] shouldBe "Refactor the 1 classes that exceed the ICP limit of 10.0."
         aggregated.suggestions[1] shouldBe "Prioritize 'HeavyClass' as it has the highest complexity (20.0 ICP)."
         // Since we only have one class, the correlation won't be calculated (size < 2 in computeIcpSlocCorrelation)
         // and we don't have enough classes for other rules.
