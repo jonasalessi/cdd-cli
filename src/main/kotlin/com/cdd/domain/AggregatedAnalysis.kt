@@ -16,7 +16,8 @@ data class AggregatedAnalysis(
     val largestClasses: List<ClassAnalysis>,
     val slocMetrics: SlocStatistics,
     val icpSlocCorrelation: Double,
-    val methodsOverSlocLimit: List<MethodAnalysis>
+    val methodsOverSlocLimit: List<MethodAnalysis>,
+    val suggestions: List<String> = emptyList()
 )
 
 /**

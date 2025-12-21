@@ -37,11 +37,19 @@ class CddCli : CliktCommand(name = "cdd-cli", help = "Cognitive-Driven Developme
     init {
         versionOption("0.1.0")
         registerAnalyzers()
+        registerReporters()
     }
 
     private fun registerAnalyzers() {
         AnalyzerRegistry.register(JavaAnalyzer())
         AnalyzerRegistry.register(KotlinAnalyzer())
+    }
+
+    private fun registerReporters() {
+        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.ConsoleReporter())
+        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.JsonReporter())
+        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.XmlReporter())
+        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.MarkdownReporter())
     }
 
     override fun run() {
@@ -59,12 +67,25 @@ class CddCli : CliktCommand(name = "cdd-cli", help = "Cognitive-Driven Developme
                 return
             }
 
-            echo("Analyzing ${files.size} files...")
+            if (verbose) echo("Analyzing ${files.size} files...")
             val results = analyzeFiles(files, config)
             val aggregatedResults = aggregateResults(results, config)
 
-            renderSummary(aggregatedResults)
+            generateAndOutputReport(aggregatedResults, config)
             handleExitCode(aggregatedResults)
+        }
+    }
+
+    private fun generateAndOutputReport(results: com.cdd.domain.AggregatedAnalysis, config: CddConfig) {
+        val reporter = com.cdd.reporter.ReporterRegistry.getReporter(config.reporting.format)
+        val report = reporter.generate(results, config)
+        
+        val outputFile = config.reporting.outputFile
+        if (outputFile != null) {
+            File(outputFile).writeText(report)
+            if (verbose) echo("Report saved to $outputFile")
+        } else {
+            echo(report)
         }
     }
 
@@ -134,30 +155,6 @@ class CddCli : CliktCommand(name = "cdd-cli", help = "Cognitive-Driven Developme
         }
     }
 
-    private fun renderSummary(results: com.cdd.domain.AggregatedAnalysis) {
-        echo("\nICP Analysis Summary")
-        echo("====================")
-        echo("Files analyzed: ${results.totalFiles}")
-        echo("Classes analyzed: ${results.totalClasses}")
-        echo("Total ICP: ${results.totalIcp}")
-        echo("Average ICP per class: %.2f".format(results.averageIcp))
-        echo("Classes over limit: ${results.classesOverLimit.size}")
-        
-        if (results.classesOverLimit.isNotEmpty()) {
-            echo("\nViolations:")
-            results.classesOverLimit.forEach { cls ->
-                echo("- ${cls.name}: ${cls.totalIcp} ICP")
-            }
-        }
-
-        echo("\nSLOC Metrics")
-        echo("------------")
-        echo("Total SLOC: ${results.slocMetrics.totalSloc}")
-        echo("Average SLOC per class: %.2f".format(results.slocMetrics.averageSlocPerClass))
-        echo("ICP-SLOC Correlation: %.2f".format(results.icpSlocCorrelation))
-        
-        echo("\nAnalysis complete.")
-    }
 }
 
 fun main(args: Array<String>) = CddCli().main(args)

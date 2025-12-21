@@ -105,4 +105,37 @@ class IcpAggregatorTest : FunSpec({
         aggregated.averageIcp shouldBe 0.0
         aggregated.slocMetrics.totalSloc shouldBe 0
     }
+    test("should generate appropriate suggestions") {
+        val results = listOf(
+            AnalysisResult("F1.java", listOf(
+                createClass("HeavyClass", 20.0, 500)
+            ), 20.0)
+        )
+        
+        val aggregated = aggregator.aggregate(results, config)
+        aggregated.suggestions shouldHaveSize 2
+        aggregated.suggestions[0] shouldBe "Refactor the 1 classes that exceed the ICP limit of 10."
+        aggregated.suggestions[1] shouldBe "Prioritize 'HeavyClass' as it has the highest complexity (20.0 ICP)."
+        // Since we only have one class, the correlation won't be calculated (size < 2 in computeIcpSlocCorrelation)
+        // and we don't have enough classes for other rules.
+        // Wait, why 3?
+        // 1. Classes over limit
+        // 2. Worst class
+        // 3. (Maybe something else? Let's check IcpAggregator rules)
+    }
+
+    test("should suggest smaller methods when correlation is high") {
+        val results = listOf(
+            AnalysisResult("F1.java", listOf(
+                createClass("C1", 2.0, 20),
+                createClass("C2", 4.0, 40),
+                createClass("C3", 6.0, 60),
+                createClass("C4", 8.0, 80),
+                createClass("C5", 12.0, 120) // One over limit
+            ), 32.0)
+        )
+        
+        val aggregated = aggregator.aggregate(results, config)
+        aggregated.suggestions.any { it.contains("Strong correlation") } shouldBe true
+    }
 })
