@@ -46,23 +46,5 @@ class AnalyzerRegistryTest : DescribeSpec({
             
             analyzer shouldBe null
         }
-
-        it("should return all supported extensions") {
-            val javaAnalyzer = object : LanguageAnalyzer {
-                override val supportedExtensions = listOf("java")
-                override val languageName = "Java"
-                override fun analyze(file: File, config: CddConfig): AnalysisResult = mockk()
-            }
-            val kotlinAnalyzer = object : LanguageAnalyzer {
-                override val supportedExtensions = listOf("kt", "kts")
-                override val languageName = "Kotlin"
-                override fun analyze(file: File, config: CddConfig): AnalysisResult = mockk()
-            }
-            
-            AnalyzerRegistry.register(javaAnalyzer)
-            AnalyzerRegistry.register(kotlinAnalyzer)
-            
-            AnalyzerRegistry.getSupportedExtensions() shouldBe setOf("java", "kt", "kts")
-        }
     }
 })

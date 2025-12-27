@@ -6,3 +6,4 @@ build
 .prd
 .DS_Store
 htmlReport
+out

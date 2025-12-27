@@ -10,6 +10,7 @@ import com.cdd.core.registry.AnalyzerRegistry
 import com.cdd.core.scanner.FileScanner
 import com.cdd.core.scanner.PackageDetector
 import com.cdd.domain.AnalysisResult
+import com.cdd.reporter.*
 import com.github.ajalt.clikt.core.CliktCommand
 import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.options.*
@@ -25,8 +26,6 @@ class CddCli : CliktCommand(
     help = "Cognitive-Driven Development Analyzer"
 ) {
     init {
-        // Required for Kotlin compiler to work in GraalVM native image
-        System.setProperty("kotlin.compiler.unit.test", "true")
         versionOption("0.1.0")
         registerAnalyzers()
         registerReporters()
@@ -34,19 +33,25 @@ class CddCli : CliktCommand(
 
     private val path by argument(help = "Directory or file to analyze")
         .file(mustExist = true, canBeFile = true, canBeDir = true)
-    
+
     val limit by option(help = "ICP limit (default: 10)").double()
     val slocLimit by option("--sloc-limit", help = "SLOC limit for methods (default: 24)").int()
     val slocOnly by option("--sloc-only", help = "Show only SLOC analysis (no ICP)").flag(default = false)
-    val format by option("--format", help = "Output format: console|json|xml|markdown (default: console)").enum<OutputFormat> { it.name.lowercase() }.default(OutputFormat.CONSOLE)
+    val format by option(
+        "--format",
+        help = "Output format: console|json|xml|markdown (default: console)"
+    ).enum<OutputFormat> { it.name.lowercase() }.default(OutputFormat.CONSOLE)
     val output by option("--output", help = "Output file (default: stdout)").file()
     val configPath by option("--config", help = "Config file path (default: .cdd.yml)").file(mustExist = true)
     val include by option("--include", help = "Include file pattern (can be repeated)").multiple()
     val exclude by option("--exclude", help = "Exclude file pattern (can be repeated)").multiple()
     val methodLevel by option("--method-level", help = "Show method-level analysis").flag(default = false)
-    val failOnViolations by option("--fail-on-violations", help = "Exit with code 1 if violations found").flag(default = false)
+    val failOnViolations by option(
+        "--fail-on-violations",
+        help = "Exit with code 1 if violations found"
+    ).flag(default = false)
     val verbose by option("-v", "--verbose", help = "Verbose output").flag(default = false)
-    
+
 
     private fun registerAnalyzers() {
         AnalyzerRegistry.register(JavaAnalyzer())
@@ -54,40 +59,38 @@ class CddCli : CliktCommand(
     }
 
     private fun registerReporters() {
-        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.ConsoleReporter())
-        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.JsonReporter())
-        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.XmlReporter())
-        com.cdd.reporter.ReporterRegistry.register(com.cdd.reporter.MarkdownReporter())
+        ReporterRegistry.register(ConsoleReporter())
+        ReporterRegistry.register(JsonReporter())
+        ReporterRegistry.register(XmlReporter())
+        ReporterRegistry.register(MarkdownReporter())
     }
 
     override fun run() {
-        if (path.isFile || path.isDirectory) {
-            val baseDir = if (path.isDirectory) path else path.parentFile ?: File(".")
-            val config = loadConfiguration(baseDir)
-            
-            if (verbose) {
-                echo("Using configuration: $config")
-            }
-
-            val files = discoverFiles(config)
-            if (files.isEmpty()) {
-                echo("No files found to analyze.")
-                return
-            }
-
-            if (verbose) echo("Analyzing ${files.size} files...")
-            val results = analyzeFiles(files, config)
-            val aggregatedResults = aggregateResults(results, config)
-
-            generateAndOutputReport(aggregatedResults, config)
-            handleExitCode(aggregatedResults)
+        if (!path.isFile && !path.isDirectory) {
+            return
         }
+        val config = loadConfiguration()
+
+        if (verbose) echo("Using configuration: $config")
+
+        val files = discoverFiles(config)
+        if (files.isEmpty()) {
+            echo("No files found to analyze.")
+            return
+        }
+
+        if (verbose) echo("Analyzing ${files.size} files...")
+        val results = analyzeFiles(files, config)
+        val aggregatedResults = aggregateResults(results, config)
+
+        generateAndOutputReport(aggregatedResults, config)
+        handleExitCode(aggregatedResults)
     }
 
     private fun generateAndOutputReport(results: com.cdd.domain.AggregatedAnalysis, config: CddConfig) {
-        val reporter = com.cdd.reporter.ReporterRegistry.getReporter(config.reporting.format)
+        val reporter = ReporterRegistry.getReporter(config.reporting.format)
         val report = reporter.generate(results, config)
-        
+
         val outputFile = config.reporting.outputFile
         if (outputFile != null) {
             File(outputFile).writeText(report)
@@ -97,11 +100,11 @@ class CddCli : CliktCommand(
         }
     }
 
-    private fun loadConfiguration(baseDir: File): CddConfig {
+    private fun loadConfiguration(): CddConfig {
         val baseConfig = if (configPath != null) {
             ConfigurationManager.loadConfigFile(configPath!!)
         } else {
-            ConfigurationManager.loadConfig(baseDir)
+            ConfigurationManager.loadConfig(File("."))
         }
 
         val mergedConfig = baseConfig.copy(

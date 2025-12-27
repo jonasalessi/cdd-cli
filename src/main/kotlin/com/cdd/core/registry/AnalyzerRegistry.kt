@@ -34,18 +34,6 @@ object AnalyzerRegistry {
     }
 
     /**
-     * Returns all registered analyzers.
-     */
-    fun getAnalyzers(): List<LanguageAnalyzer> = analyzers.toList()
-
-    /**
-     * Returns all supported file extensions.
-     */
-    fun getSupportedExtensions(): Set<String> {
-        return analyzers.flatMap { it.supportedExtensions }.toSet()
-    }
-
-    /**
      * Clears all registered analyzers (primarily for testing).
      */
     fun clear() {
