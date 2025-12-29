@@ -12,21 +12,19 @@ interface LanguageAnalyzer {
      * Supported file extensions (e.g., ["java", "kt"]).
      */
     val supportedExtensions: List<String>
-    
+
     /**
      * Human-readable language name (e.g., "Java", "Kotlin").
      */
     val languageName: String
-    
+
     /**
      * Analyzes a source file and returns the analysis result.
      */
     fun analyze(file: File, config: CddConfig): AnalysisResult
-    
+
     /**
-     * Returns true if the file can be analyzed by this analyzer.
+     * Strips comments from a single line of code.
      */
-    fun canAnalyze(file: File): Boolean {
-        return supportedExtensions.contains(file.extension.lowercase())
-    }
+    fun stripComments(line: String): String
 }

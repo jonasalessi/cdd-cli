@@ -142,4 +142,17 @@ class JavaAnalyzer : LanguageAnalyzer {
             blankLines = blankLines
         )
     }
+
+    override fun stripComments(line: String): String {
+        val stripFn = { l: String ->
+            com.cdd.core.util.CommentUtils.stripLineComment(
+                com.cdd.core.util.CommentUtils.stripBlockComments(l)
+            )
+        }
+        return if (com.cdd.core.util.CommentUtils.hasCode(line, stripFn)) {
+            stripFn(line).trimEnd()
+        } else {
+            line
+        }
+    }
 }

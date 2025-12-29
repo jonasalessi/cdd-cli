@@ -6,6 +6,7 @@ import com.cdd.core.aggregator.IcpAggregator
 import com.cdd.core.config.CddConfig
 import com.cdd.core.config.ConfigurationManager
 import com.cdd.core.config.OutputFormat
+import com.cdd.core.debug.DebugLogGenerator
 import com.cdd.core.registry.AnalyzerRegistry
 import com.cdd.core.scanner.FileScanner
 import com.cdd.core.scanner.PackageDetector
@@ -49,7 +50,8 @@ class CddCli : CliktCommand(
         help = "Exit with code 1 if violations found"
     ).flag(default = false)
     val verbose by option("-v", "--verbose", help = "Verbose output").flag(default = false)
-
+    val debug by option("--debug", help = "Generate cdd-debug.log for debugging").flag(default = false)
+    val debugLogPath by option("--debug-log-dir", help = "Path to cdd-debug.log")
 
     private fun registerAnalyzers() {
         AnalyzerRegistry.register(JavaAnalyzer())
@@ -82,6 +84,12 @@ class CddCli : CliktCommand(
         val aggregatedResults = aggregateResults(results, config)
 
         generateAndOutputReport(aggregatedResults, config)
+
+        if (debug) {
+            DebugLogGenerator.generate(results, debugLogPath)
+            if (verbose) echo("Debug log generated at cdd-debug.log")
+        }
+
         handleExitCode(aggregatedResults)
     }
 

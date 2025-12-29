@@ -61,8 +61,10 @@ java -jar cdd-cli.jar /path/to/your/code
 - `--config <file>`: Path to a custom YAML configuration file (default: `.cdd.yml`).
 - `--include <pattern>`: Include file pattern (can be repeated).
 - `--exclude <pattern>`: Exclude file pattern (can be repeated).
-- `--fail-on-violations`: Exit with code 1 if any class exceeds the ICP limit.
+- `--fail-on-violations`: Exit with code 1 if any class exceeds the ICP limit (default: false).
 - `-v, --verbose`: Enable verbose output.
+- `--debug`: Generate `cdd-debug-[date time].log` for debugging and troubleshooting (default: false).
+- `--debug-log-dir <path>`: Custom directory to store the `cdd-debug-[date time].log` file.
 - `--version`: Show the version and exit.
 
 ## Configuration

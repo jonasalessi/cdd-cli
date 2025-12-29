@@ -20,6 +20,7 @@ class FileScannerTest : DescribeSpec({
             override val supportedExtensions = listOf("java", "kt")
             override val languageName = "Dummy"
             override fun analyze(file: File, config: CddConfig): AnalysisResult = mockk()
+            override fun stripComments(line: String): String = line
         })
     }
 

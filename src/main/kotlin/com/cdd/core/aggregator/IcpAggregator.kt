@@ -59,16 +59,17 @@ class IcpAggregator {
 
         val totalSloc = classes.sumOf { it.sloc.total }
         val avgSlocPerClass = totalSloc.toDouble() / classes.size
-        val avgSlocPerMethod = if (methods.isNotEmpty()) methods.sumOf { it.sloc.total }.toDouble() / methods.size else 0.0
+        val avgSlocPerMethod =
+            if (methods.isNotEmpty()) methods.sumOf { it.sloc.codeOnly }.toDouble() / methods.size else 0.0
 
         val methodSlocs = methods.map { it.sloc.total }.sorted()
         val medianSlocPerMethod = if (methodSlocs.isNotEmpty()) {
             methodSlocs[methodSlocs.size / 2]
         } else 0
 
-        val slocVariance = classes.sumOf { 
+        val slocVariance = classes.sumOf {
             val diff = it.sloc.total - avgSlocPerClass
-            diff * diff 
+            diff * diff
         } / classes.size
         val slocStdDev = sqrt(slocVariance)
 
@@ -122,7 +123,7 @@ class IcpAggregator {
     ): List<String> {
         val suggestions = mutableListOf<String>()
         val totalIcp = classes.sumOf { it.totalIcp }
-        
+
         if (classes.isEmpty()) return emptyList()
 
         // 1. Overall Status
@@ -131,7 +132,14 @@ class IcpAggregator {
             suggestions.add("Refactor the ${classesOverLimit.size} classes that exceed the ICP limit of ${config.limit}.")
             val worstClass = classesOverLimit.maxByOrNull { it.totalIcp }
             if (worstClass != null) {
-                suggestions.add("Prioritize '${worstClass.name}' as it has the highest complexity (${String.format("%.1f", worstClass.totalIcp)} ICP).")
+                suggestions.add(
+                    "Prioritize '${worstClass.name}' as it has the highest complexity (${
+                        String.format(
+                            "%.1f",
+                            worstClass.totalIcp
+                        )
+                    } ICP)."
+                )
             }
         } else {
             suggestions.add("No classes exceed the complexity limit. Good job!")
@@ -144,7 +152,8 @@ class IcpAggregator {
                 suggestions.add("Exception handling accounts for >20% of total complexity. Consider a more centralized error handling strategy or using functional error handling.")
             }
 
-            val couplingIcp = (distribution[IcpType.INTERNAL_COUPLING] ?: 0) + (distribution[IcpType.EXTERNAL_COUPLING] ?: 0) * 0.5
+            val couplingIcp =
+                (distribution[IcpType.INTERNAL_COUPLING] ?: 0) + (distribution[IcpType.EXTERNAL_COUPLING] ?: 0) * 0.5
             if (couplingIcp / totalIcp > 0.4) {
                 suggestions.add("Coupling accounts for a large portion of complexity. Consider extracting high-coupling logic into specialized services or using interfaces to decouple components.")
             }
@@ -165,15 +174,29 @@ class IcpAggregator {
                 suggestions.add("  - Consider extracting logic from '${method.name}' (${method.sloc.total} SLOC).")
             }
         }
-        
+
         val methodHighIcpThreshold = config.limit / 3.0
         val highIcpMethods = methods.filter { it.totalIcp > methodHighIcpThreshold }.sortedByDescending { it.totalIcp }
         if (highIcpMethods.isNotEmpty()) {
             highIcpMethods.take(3).forEach { method ->
                 if (method.totalIcp > config.limit * 0.8) {
-                    suggestions.add("Method '${method.name}' is highly complex (${String.format("%.1f", method.totalIcp)} ICP). Split it!")
+                    suggestions.add(
+                        "Method '${method.name}' is highly complex (${
+                            String.format(
+                                "%.1f",
+                                method.totalIcp
+                            )
+                        } ICP). Split it!"
+                    )
                 } else {
-                    suggestions.add("Method '${method.name}' is approaching the complexity limit (${String.format("%.1f", method.totalIcp)} ICP).")
+                    suggestions.add(
+                        "Method '${method.name}' is approaching the complexity limit (${
+                            String.format(
+                                "%.1f",
+                                method.totalIcp
+                            )
+                        } ICP)."
+                    )
                 }
             }
         }
