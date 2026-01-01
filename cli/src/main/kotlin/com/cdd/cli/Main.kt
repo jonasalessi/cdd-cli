@@ -35,8 +35,6 @@ class CddCli : CliktCommand(
     private val path by argument(help = "Directory or file to analyze")
         .file(mustExist = true, canBeFile = true, canBeDir = true)
 
-    val limit by option(help = "ICP limit (default: 10)").double()
-    val slocLimit by option("--sloc-limit", help = "SLOC limit for methods (default: 24)").int()
     val format by option(
         "--format",
         help = "Output format: console|json|xml|markdown (default: console)"
@@ -114,16 +112,11 @@ class CddCli : CliktCommand(
         }
 
         val mergedConfig = baseConfig.copy(
-            limit = limit ?: baseConfig.limit,
-            sloc = baseConfig.sloc.copy(
-                methodLimit = slocLimit ?: baseConfig.sloc.methodLimit
-            ),
             include = if (include.isNotEmpty()) include else baseConfig.include,
             exclude = if (exclude.isNotEmpty()) exclude else baseConfig.exclude,
             reporting = baseConfig.reporting.copy(
                 format = format,
-                outputFile = output?.absolutePath ?: baseConfig.reporting.outputFile,
-                verbose = verbose || baseConfig.reporting.verbose
+                outputFile = output?.absolutePath ?: baseConfig.reporting.outputFile
             )
         )
 

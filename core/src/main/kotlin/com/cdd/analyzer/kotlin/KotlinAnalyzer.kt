@@ -1,5 +1,6 @@
 package com.cdd.analyzer.kotlin
 
+import com.cdd.analyzer.AbstractLanguageAnalyzer
 import com.cdd.analyzer.LanguageAnalyzer
 import com.cdd.core.config.CddConfig
 import com.cdd.core.util.CommentUtils
@@ -15,7 +16,7 @@ import org.jetbrains.kotlin.psi.*
 import org.jetbrains.kotlin.psi.psiUtil.startOffset
 import java.io.File
 
-class KotlinAnalyzer : LanguageAnalyzer {
+class KotlinAnalyzer : AbstractLanguageAnalyzer() {
     override val supportedExtensions: List<String> = listOf("kt", "kts")
     override val languageName: String = "Kotlin"
 
@@ -41,7 +42,7 @@ class KotlinAnalyzer : LanguageAnalyzer {
             ktFile.accept(object : KtTreeVisitorVoid() {
                 override fun visitClass(klass: KtClass) {
                     super.visitClass(klass)
-                    classes.add(analyzeClass(klass, content, config))
+                    classes.add(analyzeClass(klass, content, file, config))
                 }
             })
 
@@ -69,17 +70,25 @@ class KotlinAnalyzer : LanguageAnalyzer {
         }
     }
 
-    private fun analyzeClass(ktClass: KtClass, fullContent: String, config: CddConfig): ClassAnalysis {
+
+
+    private fun analyzeClass(ktClass: KtClass, fullContent: String, file: File, config: CddConfig): ClassAnalysis {
         val ktFile = ktClass.containingFile as KtFile
-        val scanner = KotlinIcpScanner(fullContent, config, ktFile, ktClass.fqName?.asString())
+        // Resolve limits
+        val weights = resolveWeights(file, config)
+        val scanner = KotlinIcpScanner(fullContent, config, ktFile, weights, ktClass.fqName?.asString())
         ktClass.accept(scanner)
 
         val classIcpInstances = scanner.getIcpInstances()
         val totalIcp = classIcpInstances.sumOf { it.weight }
+        val classIcpBreakdown = classIcpInstances.groupBy { it.type }
 
         val startLine = getLineNumber(fullContent, ktClass.startOffset)
         val endLine = getLineNumber(fullContent, ktClass.textRange.endOffset)
         val lineRange = (startLine..endLine).toSerializable()
+
+        val classLimit = resolveIcpLimit(file, config) ?: Double.MAX_VALUE
+        val overLimit = totalIcp > classLimit
 
         val methods = mutableListOf<MethodAnalysis>()
         ktClass.accept(object : KtTreeVisitorVoid() {
@@ -92,14 +101,16 @@ class KotlinAnalyzer : LanguageAnalyzer {
 
                     val methodIcpInstances = classIcpInstances.filter { it.line in methodRange }
                     val methodSloc = calculateSloc(fullContent, methodStart, methodEnd)
-
+                    
+                    val methodBreakdown = methodIcpInstances.groupBy { it.type }
+                    
                     methods.add(
                         MethodAnalysis(
                             name = function.name ?: "Unknown",
                             className = ktClass.name ?: "Unknown",
                             lineRange = methodRange.toSerializable(),
                             totalIcp = methodIcpInstances.sumOf { it.weight },
-                            icpBreakdown = methodIcpInstances.groupBy { it.type },
+                            icpBreakdown = methodBreakdown,
                             sloc = methodSloc,
                             isOverSlocLimit = methodSloc.codeOnly > config.sloc.methodLimit
                         )
@@ -113,9 +124,9 @@ class KotlinAnalyzer : LanguageAnalyzer {
             packageName = (ktClass.containingFile as? KtFile)?.packageFqName?.asString() ?: "",
             lineRange = lineRange,
             totalIcp = totalIcp,
-            icpBreakdown = classIcpInstances.groupBy { it.type },
+            icpBreakdown = classIcpBreakdown,
             methods = methods,
-            isOverLimit = totalIcp > config.limit,
+            isOverLimit = overLimit,
             sloc = calculateSloc(fullContent, startLine, endLine)
         )
     }

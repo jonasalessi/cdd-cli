@@ -73,57 +73,103 @@ java -jar cdd-cli.jar /path/to/your/code
 
 ### Common Options
 
-- `<path>`: Directory or file to analyze (required).
-- `--limit <double>`: Set the ICP limit per class (default: 10.0).
-- `--sloc-limit <int>`: Set the SLOC limit for methods (default: 24).
-- `--format <format>`: Output format: `console`, `json`, `xml`, `markdown` (default: `console`).
-- `--output <file>`: Redirect output to a file (default: stdout).
-- `--config <file>`: Path to a custom YAML configuration file (default: `.cdd.yml`).
-- `--include <pattern>`: Include file pattern (can be repeated).
-- `--exclude <pattern>`: Exclude file pattern (can be repeated).
-- `--fail-on-violations`: Exit with code 1 if any class exceeds the ICP limit (default: false).
-- `-v, --verbose`: Enable verbose output.
-- `--debug`: Generate `cdd-debug-[date time].log` for debugging and troubleshooting (default: false).
-- `--debug-log-dir <path>`: Custom directory to store the `cdd-debug-[date time].log` file.
-- `--version`: Show the version and exit.
+*   `--config <file>`: Path to configuration file (default: `.cdd.yaml` or `.cdd.yml`)
+*   `--format <format>`: Output format (`console`, `json`, `xml`, `markdown`). Default: `console`.
+*   `--output <file>`: Write output to file instead of stdout.
+*   `--fail-on-violations`: Exit with code 1 if violations are found.
+*   `--include <pattern>`: Include files matching pattern (glob).
+*   `--exclude <pattern>`: Exclude files matching pattern (glob).
+*   `-v, --verbose`: Enable verbose logging.
+*   `--debug`: Enable debug logging (creates `cdd-debug.log`).
 
 ## Configuration
 
-CDD CLI can be configured using a `.cdd.yaml` or `.cdd.yml` file in your project root or via the `--config` option.
+CDD CLI is configured via a YAML file (`.cdd.yaml`). Limits and metrics are now defined per language and file path.
 
 ```yaml
-limit: 10.0 # Maximum ICP value allowed per class
-icpTypes: # Optional: custom weights for ICP types
-  CODE_BRANCH: 1.0
-  CONDITION: 1.0
-  EXCEPTION_HANDLING: 1.0
-  INTERNAL_COUPLING: 1.0
-classTypeLimits: { } # Optional: limits per class type (e.g., Service: 15)
+# Cognitive Driven Development (CDD) Configuration Template
+# This file defines how the ICP (Intrinsic Complexity Points) are calculated and reported.
 
-internalCoupling:
-  autoDetect: true # Enables automatic detection of project packages
-  packages: [ ] # List of internal packages to consider for coupling
+# -----------------------------------------------------------------------------
+# METRICS: ICP WEIGHTS
+# -----------------------------------------------------------------------------
+# Defines how many points each code construct contributes to the total ICP of a class.
+# Higher weights make specific patterns count more towards the limit.
+# Structure: metrics -> [language] -> [file_regex_pattern] -> [metric_type]: [weight]
+metrics:
+  java:
+    ".*": # Default weights for all Java files
+      code_branch: 1.0        # if/else, switch case, ternary operator
+      condition: 1.0          # logical operators (&&, ||) and branch expressions
+      internal_coupling: 1.0  # references to other classes within the internal project
+      exception_handling: 1.0 # try/catch and finally blocks
+  kotlin:
+    ".*": # Default weights for all Kotlin files
+       code_branch: 1.0       # if/when, loop constructs, safe calls (?.), elvis (?:)
+       condition: 1.0         # logical operators and branch expressions
+       internal_coupling: 1.0 # references to other internal project classes/packages
+       exception_handling: 1.0 # try/catch blocks
 
-include: [ ] # List of glob patterns for files to include
-exclude: [ ] # List of glob patterns for files to exclude
+# -----------------------------------------------------------------------------
+# ICP-LIMITS: CLASS THRESHOLDS
+# -----------------------------------------------------------------------------
+# Defines the maximum total ICP allowed for a single class before it is flagged.
+# If a class's total ICP (sum of all weighted metrics) exceeds this value, 
+# it will be reported as a violation.
+# Structure: icp-limits -> [language] -> [file_regex_pattern]: [limit_value]
+icp-limits:
+   java:
+      ".*": 12 # Default threshold for Java classes. Recommended range: 8-15.
+   kotlin:
+      ".*": 12 # Default threshold for Kotlin classes.
 
+# -----------------------------------------------------------------------------
+# REPORTER SETTINGS
+# -----------------------------------------------------------------------------
+reporter:
+   # format: The output style. Supported: console, json, xml, markdown
+   format: console
+   # outputFile: Optional path to save the report. If null, outputs to stdout.
+   outputFile: null
+
+# -----------------------------------------------------------------------------
+# INTERNAL COUPLING DETECTION
+# -----------------------------------------------------------------------------
+# Settings to define what is considered "internal" to your project.
+internal_coupling:
+   # auto_detect: If true, tries to discover internal packages from source files.
+   auto_detect: true
+   # packages: Explicit list of package prefixes to treat as internal.
+   # e.g., ["com.mycompany.app"]
+   packages: []
+
+# -----------------------------------------------------------------------------
+# FILE FILTERING
+# -----------------------------------------------------------------------------
+# Patterns follow glob: or regex: syntax. If no prefix is provided, glob: is assumed.
+# include: If not empty, only files matching at least one pattern will be analyzed.
+include: [] 
+# exclude: Files matching these patterns will be skipped (e.g., generated code, tests).
+exclude: [] 
+
+# -----------------------------------------------------------------------------
+# SLOC (SOURCE LINES OF CODE) METRICS
+# -----------------------------------------------------------------------------
 sloc:
-  classLimit: 0 # SLOC limit for classes (0 = disabled)
-  methodLimit: 24 # SLOC limit for methods
-  warnAtMethod: 15 # SLOC threshold for warnings
-  excludeComments: true # Do not count comments in SLOC
-  excludeBlankLines: true # Do not count blank lines in SLOC
-
-reporting:
-  format: "console" # Output format: console, json, xml, markdown
-  outputFile: null # Optional: path to write the report
-  verbose: false # Enable detailed reporting
-  showLineNumbers: true # Include line numbers in reports
-  showSuggestions: true # Provide refactoring suggestions
-  showSlocMetrics: true # Include SLOC metrics in report
-  showSlocDistribution: true # Show SLOC distribution charts
-  showCorrelation: true # Show ICP vs SLOC correlation
+   # methodLimit: Maximum lines of code allowed in a single method.
+   # Flagged separately from ICP in some reports.
+   methodLimit: 24
 ```
+
+### Metrics and Limits
+*   **`metrics`**: Customizes how many points each construct contributes to the total ICP.
+    *   `code_branch`: Branches (if, switch, ?. (safe call), etc.).
+    *   `condition`: Logical operators and conditions in loops.
+    *   `internal_coupling`: References to other classes in the project.
+    *   `exception_handling`: Usage of try/catch/finally blocks.
+*   **`icp-limits`**: Sets the maximum allowed **total ICP** (sum of all weighted metrics) for a class. If a class exceeds this limit, it's flagged as a violation.
+
+Patterns support **Regex** matching for fine-grained control over specific file groups.
 
 ## Known Limitations
 

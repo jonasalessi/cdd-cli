@@ -9,14 +9,18 @@ import spoon.reflect.reference.CtPackageReference
 import spoon.reflect.reference.CtTypeReference
 import spoon.reflect.visitor.CtScanner
 
-class JavaCtScanner(val config: CddConfig) : CtScanner() {
+class JavaCtScanner(
+    val config: CddConfig,
+    private val weights: Map<String, Double> = emptyMap()
+) : CtScanner() {
     val icpInstances = mutableMapOf<IcpType, MutableList<IcpInstance>>()
 
     private fun addInstance(type: IcpType, element: CtElement, description: String) {
         val position = element.position
         if (!position.isValidPosition) return
 
-        val weight = config.icpTypes[type] ?: type.defaultWeight
+        val typeKey = type.name.lowercase()
+        val weight = weights[typeKey] ?: type.defaultWeight
         val instance = IcpInstance(
             type = type,
             line = position.line,

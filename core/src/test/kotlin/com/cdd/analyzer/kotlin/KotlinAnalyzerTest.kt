@@ -13,9 +13,8 @@ import java.io.File
 class KotlinAnalyzerTest : StringSpec({
     val analyzer = KotlinAnalyzer()
     val config = CddConfig(
-        limit = 10.0,
-        icpTypes = IcpType.entries.associateWith { it.defaultWeight },
-        classTypeLimits = emptyMap(),
+        metrics = mapOf("kotlin" to mapOf(".*" to mapOf("code_branch" to 1.0))),
+        icpLimits = mapOf("kotlin" to mapOf(".*" to 10.0)),
         internalCoupling = InternalCouplingConfig(autoDetect = true, packages = listOf("com.example", "com.challenge")),
         reporting = ReportingConfig()
     )

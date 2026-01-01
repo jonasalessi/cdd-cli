@@ -11,8 +11,8 @@ import java.io.File
 class JavaAnalyzerTest : FunSpec({
     val analyzer = JavaAnalyzer()
     val config = CddConfig(
-        limit = 10.0,
-        icpTypes = IcpType.entries.associateWith { it.defaultWeight },
+        metrics = mapOf("java" to mapOf(".*" to mapOf("code_branch" to 1.0, "condition" to 1.0, "internal_coupling" to 1.0, "exception_handling" to 1.0))),
+        icpLimits = mapOf("java" to mapOf(".*" to 10.0)),
         internalCoupling = InternalCouplingConfig(packages = listOf("com.example.domain"))
     )
 

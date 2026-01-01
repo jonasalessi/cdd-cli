@@ -12,6 +12,7 @@ class KotlinIcpScanner(
     val fullContent: String,
     val config: CddConfig,
     val currentKtFile: KtFile,
+    private val weights: Map<String, Double> = emptyMap(),
     private val analyzedClassName: String? = null
 ) : KtTreeVisitorVoid() {
     private val icpInstances = mutableListOf<IcpInstance>()
@@ -36,7 +37,8 @@ class KotlinIcpScanner(
     private fun addInstance(type: IcpType, element: PsiElement, description: String) {
         val line = getLineNumber(fullContent, element.startOffset)
         val column = getColumnNumber(fullContent, element.startOffset)
-        val weight = config.icpTypes[type] ?: type.defaultWeight
+        val typeKey = type.name.lowercase()
+        val weight = weights[typeKey] ?: type.defaultWeight
 
         icpInstances.add(IcpInstance(type, line, column, description, weight))
     }

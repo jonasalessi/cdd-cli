@@ -1,5 +1,6 @@
 package com.cdd.analyzer.java
 
+import com.cdd.analyzer.AbstractLanguageAnalyzer
 import com.cdd.analyzer.LanguageAnalyzer
 import com.cdd.core.config.CddConfig
 import com.cdd.domain.*
@@ -9,7 +10,7 @@ import spoon.reflect.declaration.CtClass
 import spoon.reflect.declaration.CtElement
 import java.io.File
 
-class JavaAnalyzer : LanguageAnalyzer {
+class JavaAnalyzer : AbstractLanguageAnalyzer() {
     private val logger = LoggerFactory.getLogger(this::class.java)
 
     override val supportedExtensions: List<String> = listOf("java")
@@ -52,18 +53,26 @@ class JavaAnalyzer : LanguageAnalyzer {
         return launcher
     }
 
+
+
     private fun analyzeClass(ctClass: CtClass<*>, config: CddConfig): ClassAnalysis {
-        val scanner = JavaCtScanner(config)
+        val file = ctClass.position?.file ?: File("unknown")
+        val weights = resolveWeights(file, config)
+        val scanner = JavaCtScanner(config, weights)
         ctClass.accept(scanner)
 
         val classIcpInstances = scanner.icpInstances.values.flatten()
+        val classIcpBreakdown = classIcpInstances.groupBy { it.type }
+        
+        val totalIcp = classIcpInstances.sumOf { it.weight }
+        val classLimit = resolveIcpLimit(file, config) ?: Double.MAX_VALUE
+        val overLimit = totalIcp > classLimit
 
         val methods = ctClass.methods.map { ctMethod ->
             val methodRange = ctMethod.position.line..ctMethod.position.endLine
             val methodIcpInstances = classIcpInstances.filter { it.line in methodRange }
-
             val methodIcpBreakdown = methodIcpInstances.groupBy { it.type }
-
+            
             MethodAnalysis(
                 name = ctMethod.simpleName,
                 className = ctClass.simpleName,
@@ -71,14 +80,11 @@ class JavaAnalyzer : LanguageAnalyzer {
                 totalIcp = methodIcpInstances.sumOf { it.weight },
                 icpBreakdown = methodIcpBreakdown,
                 sloc = calculateSlocOf(ctMethod),
-                isOverSlocLimit = false // Will be set by aggregator if needed
+                isOverSlocLimit = false 
             )
         }
 
-        val classIcpBreakdown = classIcpInstances.groupBy { it.type }
         val lineRange = ctClass.position.line..ctClass.position.endLine
-
-        val totalIcp = classIcpInstances.sumOf { it.weight }
 
         return ClassAnalysis(
             name = ctClass.simpleName,
@@ -87,7 +93,7 @@ class JavaAnalyzer : LanguageAnalyzer {
             totalIcp = totalIcp,
             icpBreakdown = classIcpBreakdown,
             methods = methods,
-            isOverLimit = totalIcp > config.limit,
+            isOverLimit = overLimit,
             sloc = calculateSlocOf(ctClass)
         )
     }
@@ -97,7 +103,9 @@ class JavaAnalyzer : LanguageAnalyzer {
             val position = ctElement.position
             if (position.isValidPosition) {
                 val content = position.compilationUnit?.originalSourceCode ?: ""
-                calculateSloc(content, position.line, position.endLine)
+                // Add safe guard for endLine > startLine
+                val endLine = if (position.endLine >= position.line) position.endLine else position.line
+                calculateSloc(content, position.line, endLine)
             } else {
                 SlocMetrics(0, 0, 0, 0, 0)
             }

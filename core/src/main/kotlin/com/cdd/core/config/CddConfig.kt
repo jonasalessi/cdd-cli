@@ -1,6 +1,7 @@
 package com.cdd.core.config
 
 import com.cdd.domain.IcpType
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
@@ -16,6 +17,7 @@ enum class OutputFormat {
  */
 @Serializable
 data class InternalCouplingConfig(
+    @SerialName("auto_detect")
     val autoDetect: Boolean = true,
     val packages: List<String> = emptyList()
 )
@@ -26,11 +28,7 @@ data class InternalCouplingConfig(
  */
 @Serializable
 data class SlocConfig(
-    val classLimit: Int = 0,
-    val methodLimit: Int = 24,
-    val warnAtMethod: Int = 15,
-    val excludeComments: Boolean = true,
-    val excludeBlankLines: Boolean = true
+    val methodLimit: Int = 24
 )
 
 /**
@@ -39,13 +37,7 @@ data class SlocConfig(
 @Serializable
 data class ReportingConfig(
     val format: OutputFormat = OutputFormat.CONSOLE,
-    val outputFile: String? = null,
-    val verbose: Boolean = false,
-    val showLineNumbers: Boolean = true,
-    val showSuggestions: Boolean = true,
-    val showSlocMetrics: Boolean = true,
-    val showSlocDistribution: Boolean = true,
-    val showCorrelation: Boolean = true
+    val outputFile: String? = null
 )
 
 /**
@@ -53,12 +45,15 @@ data class ReportingConfig(
  */
 @Serializable
 data class CddConfig(
-    val limit: Double = 10.0,
-    val icpTypes: Map<IcpType, Double> = IcpType.entries.associateWith { it.defaultWeight },
-    val classTypeLimits: Map<String, Int> = emptyMap(),
+    // Language -> Regex -> Metric -> Weight
+    val metrics: Map<String, Map<String, Map<String, Double>>> = emptyMap(),
+    @SerialName("icp-limits")
+    val icpLimits: Map<String, Map<String, Double>> = emptyMap(),
+    @SerialName("internal_coupling")
     val internalCoupling: InternalCouplingConfig = InternalCouplingConfig(),
     val include: List<String> = emptyList(),
     val exclude: List<String> = emptyList(),
     val sloc: SlocConfig = SlocConfig(),
+    @SerialName("reporter")
     val reporting: ReportingConfig = ReportingConfig()
 )

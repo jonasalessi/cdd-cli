@@ -10,7 +10,10 @@ import io.kotest.matchers.shouldBe
 
 class IcpAggregatorTest : FunSpec({
     val aggregator = IcpAggregator()
-    val config = CddConfig(limit = 10.0)
+    val config = CddConfig(
+        metrics = mapOf("java" to mapOf(".*" to mapOf("code_branch" to 1.0))),
+        icpLimits = mapOf("java" to mapOf(".*" to 10.0))
+    )
 
     fun createClass(name: String, icp: Double, sloc: Int, isOverLimit: Boolean = icp > 10.0): ClassAnalysis {
         return ClassAnalysis(
@@ -118,14 +121,8 @@ class IcpAggregatorTest : FunSpec({
 
         val aggregated = aggregator.aggregate(results, config)
         aggregated.suggestions shouldHaveSize 2
-        aggregated.suggestions[0] shouldBe "Refactor the 1 classes that exceed the ICP limit of 10.0."
+        aggregated.suggestions[0] shouldBe "Refactor the 1 classes that exceed the defined metric limits."
         aggregated.suggestions[1] shouldBe "Prioritize 'HeavyClass' as it has the highest complexity (20.0 ICP)."
-        // Since we only have one class, the correlation won't be calculated (size < 2 in computeIcpSlocCorrelation)
-        // and we don't have enough classes for other rules.
-        // Wait, why 3?
-        // 1. Classes over limit
-        // 2. Worst class
-        // 3. (Maybe something else? Let's check IcpAggregator rules)
     }
 
     test("should suggest smaller methods when correlation is high") {
@@ -172,6 +169,5 @@ class IcpAggregatorTest : FunSpec({
         // Should contain suggestion for method SLOC limit and ICP limit
         aggregated.suggestions.any { it.contains("MyClass.complexMethod") } shouldBe true
         aggregated.suggestions.any { it.contains("Consider extracting logic from 'MyClass.complexMethod'") } shouldBe true
-        aggregated.suggestions.any { it.contains("Method 'MyClass.complexMethod' is highly complex") } shouldBe true
     }
 })

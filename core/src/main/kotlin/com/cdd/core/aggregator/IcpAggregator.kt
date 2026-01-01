@@ -21,7 +21,8 @@ class IcpAggregator {
         val totalIcp = allClassAnalyses.sumOf { it.totalIcp }
         val averageIcp = if (totalClasses > 0) totalIcp / totalClasses else 0.0
 
-        val classesOverLimit = allClassAnalyses.filter { it.totalIcp > config.limit }
+        // Use pre-calculated isOverLimit
+        val classesOverLimit = allClassAnalyses.filter { it.isOverLimit }
         val largestClasses = allClassAnalyses.sortedByDescending { it.totalIcp }.take(10)
 
         val icpDistribution = IcpType.entries.associateWith { type ->
@@ -49,6 +50,68 @@ class IcpAggregator {
         )
     }
 
+    private fun generateSuggestions(
+        classes: List<ClassAnalysis>,
+        methods: List<MethodAnalysis>,
+        distribution: Map<IcpType, Int>,
+        correlation: Double,
+        config: CddConfig
+    ): List<String> {
+        val suggestions = mutableListOf<String>()
+        val totalIcp = classes.sumOf { it.totalIcp }
+
+        if (classes.isEmpty()) return emptyList()
+
+        // 1. Overall Status
+        val classesOverLimit = classes.filter { it.isOverLimit }
+        if (classesOverLimit.isNotEmpty()) {
+            suggestions.add("Refactor the ${classesOverLimit.size} classes that exceed the defined metric limits.")
+            val worstClass = classesOverLimit.maxByOrNull { it.totalIcp }
+            if (worstClass != null) {
+                suggestions.add(
+                    "Prioritize '${worstClass.name}' as it has the highest complexity (${
+                        String.format(
+                            "%.1f",
+                            worstClass.totalIcp
+                        )
+                    } ICP)."
+                )
+            }
+        } else {
+            suggestions.add("No classes exceed the complexity limits. Good job!")
+        }
+
+        // 2. ICP Type Analysis
+        if (totalIcp > 0) {
+            val exceptionIcp = distribution[IcpType.EXCEPTION_HANDLING] ?: 0
+            if (exceptionIcp.toDouble() / totalIcp > 0.2) {
+                suggestions.add("Exception handling accounts for >20% of total complexity. Consider a more centralized error handling strategy or using functional error handling.")
+            }
+
+            val couplingIcp = (distribution[IcpType.INTERNAL_COUPLING] ?: 0).toDouble()
+            if (couplingIcp / totalIcp > 0.4) {
+                suggestions.add("Coupling accounts for a large portion of complexity. Consider extracting high-coupling logic into specialized services or using interfaces to decouple components.")
+            }
+        }
+
+        // 3. Correlation Analysis
+        if (correlation > 0.8 && classes.size >= 5) {
+            suggestions.add("Strong correlation ($correlation) between SLOC and ICP detected. Making methods smaller (extracting methods) will likely reduce cognitive complexity directly.")
+        } else if (correlation < 0.3 && classes.size >= 5 && classes.any { it.isOverLimit }) {
+            suggestions.add("Low correlation ($correlation) between SLOC and ICP. Some classes are complex despite being small. Watch out for 'brain methods' with high density of logic.")
+        }
+
+        // 4. Method limits
+        val overSloc = methods.filter { it.isOverSlocLimit }
+        if (overSloc.isNotEmpty()) {
+            suggestions.add("${overSloc.size} methods exceed the ${config.sloc.methodLimit} SLOC threshold. Breaking these down is highly recommended.")
+            overSloc.take(3).forEach { method ->
+                suggestions.add("  - Consider extracting logic from '${method.className}.${method.name}' (${method.sloc.total} SLOC).")
+            }
+        }
+
+        return suggestions
+    }
     private fun computeSlocStatistics(
         classes: List<ClassAnalysis>,
         methods: List<MethodAnalysis>
@@ -112,94 +175,5 @@ class IcpAggregator {
 
         val denominator = sqrt(icpSquareSum * slocSquareSum)
         return if (denominator != 0.0) numerator / denominator else 0.0
-    }
-
-    private fun generateSuggestions(
-        classes: List<ClassAnalysis>,
-        methods: List<MethodAnalysis>,
-        distribution: Map<IcpType, Int>,
-        correlation: Double,
-        config: CddConfig
-    ): List<String> {
-        val suggestions = mutableListOf<String>()
-        val totalIcp = classes.sumOf { it.totalIcp }
-
-        if (classes.isEmpty()) return emptyList()
-
-        // 1. Overall Status
-        val classesOverLimit = classes.filter { it.totalIcp > config.limit }
-        if (classesOverLimit.isNotEmpty()) {
-            suggestions.add("Refactor the ${classesOverLimit.size} classes that exceed the ICP limit of ${config.limit}.")
-            val worstClass = classesOverLimit.maxByOrNull { it.totalIcp }
-            if (worstClass != null) {
-                suggestions.add(
-                    "Prioritize '${worstClass.name}' as it has the highest complexity (${
-                        String.format(
-                            "%.1f",
-                            worstClass.totalIcp
-                        )
-                    } ICP)."
-                )
-            }
-        } else {
-            suggestions.add("No classes exceed the complexity limit. Good job!")
-        }
-
-        // 2. ICP Type Analysis
-        if (totalIcp > 0) {
-            val exceptionIcp = distribution[IcpType.EXCEPTION_HANDLING] ?: 0
-            if (exceptionIcp.toDouble() / totalIcp > 0.2) {
-                suggestions.add("Exception handling accounts for >20% of total complexity. Consider a more centralized error handling strategy or using functional error handling.")
-            }
-
-            val couplingIcp = (distribution[IcpType.INTERNAL_COUPLING] ?: 0).toDouble()
-            if (couplingIcp / totalIcp > 0.4) {
-                suggestions.add("Coupling accounts for a large portion of complexity. Consider extracting high-coupling logic into specialized services or using interfaces to decouple components.")
-            }
-        }
-
-        // 3. Correlation Analysis
-        if (correlation > 0.8 && classes.size >= 5) {
-            suggestions.add("Strong correlation ($correlation) between SLOC and ICP detected. Making methods smaller (extracting methods) will likely reduce cognitive complexity directly.")
-        } else if (correlation < 0.3 && classes.size >= 5 && classes.any { it.totalIcp > config.limit }) {
-            suggestions.add("Low correlation ($correlation) between SLOC and ICP. Some classes are complex despite being small. Watch out for 'brain methods' with high density of logic.")
-        }
-
-        // 4. Method limits
-        val overSloc = methods.filter { it.isOverSlocLimit }
-        if (overSloc.isNotEmpty()) {
-            suggestions.add("${overSloc.size} methods exceed the ${config.sloc.methodLimit} SLOC threshold. Breaking these down is highly recommended.")
-            overSloc.take(3).forEach { method ->
-                suggestions.add("  - Consider extracting logic from '${method.className}.${method.name}' (${method.sloc.total} SLOC).")
-            }
-        }
-
-        val methodHighIcpThreshold = config.limit / 3.0
-        val highIcpMethods = methods.filter { it.totalIcp > methodHighIcpThreshold }.sortedByDescending { it.totalIcp }
-        if (highIcpMethods.isNotEmpty()) {
-            highIcpMethods.take(3).forEach { method ->
-                if (method.totalIcp > config.limit * 0.8) {
-                    suggestions.add(
-                        "Method '${method.className}.${method.name}' is highly complex (${
-                            String.format(
-                                "%.1f",
-                                method.totalIcp
-                            )
-                        } ICP). Split it!"
-                    )
-                } else {
-                    suggestions.add(
-                        "Method '${method.className}.${method.name}' is approaching the complexity limit (${
-                            String.format(
-                                "%.1f",
-                                method.totalIcp
-                            )
-                        } ICP)."
-                    )
-                }
-            }
-        }
-
-        return suggestions
     }
 }

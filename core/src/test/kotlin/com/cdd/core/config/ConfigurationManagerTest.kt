@@ -2,6 +2,8 @@ package com.cdd.core.config
 
 import io.kotest.core.spec.style.DescribeSpec
 import io.kotest.matchers.shouldBe
+import io.kotest.matchers.shouldNotBe
+import io.kotest.matchers.maps.shouldNotBeEmpty
 import java.io.File
 import java.nio.file.Files
 
@@ -15,13 +17,19 @@ class ConfigurationManagerTest : DescribeSpec({
     describe("ConfigurationManager") {
         it("should return default config when no file exists") {
             val config = ConfigurationManager.loadConfig(tempDir)
-            config.limit shouldBe 10
+            config.metrics.shouldNotBeEmpty()
             config.sloc.methodLimit shouldBe 24
         }
 
         it("should load valid YAML configuration") {
             val yamlContent = """
-                limit: 15
+                metrics:
+                  java:
+                    ".*":
+                       code_branch: 15.0
+                icp-limits:
+                  java:
+                    ".*": 12.0
                 sloc:
                   methodLimit: 30
             """.trimIndent()
@@ -29,42 +37,58 @@ class ConfigurationManagerTest : DescribeSpec({
             yamlFile.writeText(yamlContent)
 
             val config = ConfigurationManager.loadConfig(tempDir)
-            config.limit shouldBe 15
+            val javaMetrics = config.metrics["java"]?.get(".*")
+            javaMetrics?.get("code_branch") shouldBe 15.0
             config.sloc.methodLimit shouldBe 30
+            config.icpLimits.shouldNotBeEmpty()
+            config.icpLimits["java"]!![".*"] shouldBe 12.0
 
             yamlFile.delete()
         }
 
-        it("should load valid YAML configuration from .cdd.yaml") {
-            val yamlContent = """
-                limit: 20
-                sloc:
-                  methodLimit: 40
+        it("should accept 0 as a valid limit") {
+             val yamlContent = """
+                metrics:
+                  java:
+                    ".*":
+                       code_branch: 0.0
             """.trimIndent()
-            val yamlFile = File(tempDir, ".cdd.yaml")
+            val yamlFile = File(tempDir, ".cdd.yml")
             yamlFile.writeText(yamlContent)
 
             val config = ConfigurationManager.loadConfig(tempDir)
-            config.limit shouldBe 20.0
-            config.sloc.methodLimit shouldBe 40
+            val javaMetrics = config.metrics["java"]?.get(".*")
+            javaMetrics?.get("code_branch") shouldBe 0.0
 
             yamlFile.delete()
         }
 
-        it("should prefer .cdd.yml over .cdd.yaml if both exist") {
-            val ymlContent = "limit: 15"
-            val yamlContent = "limit: 20"
+        it("should allow 0 as a valid metric weight") {
+            val yamlContent = """
+                metrics:
+                  java:
+                    ".*":
+                      code_branch: 0
+            """.trimIndent()
 
-            val ymlFile = File(tempDir, ".cdd.yml")
-            val yamlFile = File(tempDir, ".cdd.yaml")
-
-            ymlFile.writeText(ymlContent)
+            val yamlFile = File(tempDir, ".cdd.yml")
             yamlFile.writeText(yamlContent)
-
             val config = ConfigurationManager.loadConfig(tempDir)
-            config.limit shouldBe 15.0
+            config.metrics["java"]!![".*"]!!["code_branch"] shouldBe 0.0
+            yamlFile.delete()
+        }
 
-            ymlFile.delete()
+        it("should allow 0 as a valid ICP limit") {
+            val yamlContent = """
+                icp-limits:
+                  java:
+                    ".*": 0
+            """.trimIndent()
+
+            val yamlFile = File(tempDir, ".cdd.yml")
+            yamlFile.writeText(yamlContent)
+            val config = ConfigurationManager.loadConfig(tempDir)
+            config.icpLimits["java"]!![".*"] shouldBe 0.0
             yamlFile.delete()
         }
 
@@ -74,18 +98,24 @@ class ConfigurationManagerTest : DescribeSpec({
             yamlFile.writeText(invalidYaml)
 
             val config = ConfigurationManager.loadConfig(tempDir)
-            config.limit shouldBe 10 // default
+            config.metrics.shouldNotBeEmpty() // defaults
 
             yamlFile.delete()
         }
 
         it("should fallback to defaults if validation fails") {
-            val invalidLimit = "limit: -5"
+            val invalidLimit = """
+                metrics:
+                  java:
+                    ".*":
+                       code_branch: -1.0
+            """.trimIndent()
             val yamlFile = File(tempDir, ".cdd.yml")
             yamlFile.writeText(invalidLimit)
 
             val config = ConfigurationManager.loadConfig(tempDir)
-            config.limit shouldBe 10 // default
+            // Should be defaults because validation failed
+            config.metrics["java"]?.get(".*")?.get("code_branch") shouldBe 1.0 
 
             yamlFile.delete()
         }

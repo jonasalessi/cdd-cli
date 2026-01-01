@@ -1,0 +1,72 @@
+# Cognitive Driven Development (CDD) Configuration Template
+# This file defines how the ICP (Intrinsic Complexity Points) are calculated and reported.
+
+# -----------------------------------------------------------------------------
+# METRICS: ICP WEIGHTS
+# -----------------------------------------------------------------------------
+# Defines how many points each code construct contributes to the total ICP of a class.
+# Higher weights make specific patterns count more towards the limit.
+# Structure: metrics -> [language] -> [file_regex_pattern] -> [metric_type]: [weight]
+metrics:
+  java:
+    ".*": # Default weights for all Java files
+      code_branch: 1.0        # if/else, switch case, ternary operator
+      condition: 1.0          # logical operators (&&, ||) and branch expressions
+      internal_coupling: 1.0  # references to other classes within the internal project
+      exception_handling: 1.0 # try/catch and finally blocks
+  kotlin:
+    ".*": # Default weights for all Kotlin files
+       code_branch: 1.0       # if/when, loop constructs, safe calls (?.), elvis (?:)
+       condition: 1.0         # logical operators and branch expressions
+       internal_coupling: 1.0 # references to other internal project classes/packages
+       exception_handling: 1.0 # try/catch blocks
+
+# -----------------------------------------------------------------------------
+# ICP-LIMITS: CLASS THRESHOLDS
+# -----------------------------------------------------------------------------
+# Defines the maximum total ICP allowed for a single class before it is flagged.
+# If a class's total ICP (sum of all weighted metrics) exceeds this value, 
+# it will be reported as a violation.
+# Structure: icp-limits -> [language] -> [file_regex_pattern]: [limit_value]
+icp-limits:
+   java:
+      ".*": 12 # Default threshold for Java classes. Recommended range: 8-15.
+   kotlin:
+      ".*": 12 # Default threshold for Kotlin classes.
+
+# -----------------------------------------------------------------------------
+# REPORTER SETTINGS
+# -----------------------------------------------------------------------------
+reporter:
+   # format: The output style. Supported: console, json, xml, markdown
+   format: console
+   # outputFile: Optional path to save the report. If null, outputs to stdout.
+   outputFile: null
+
+# -----------------------------------------------------------------------------
+# INTERNAL COUPLING DETECTION
+# -----------------------------------------------------------------------------
+# Settings to define what is considered "internal" to your project.
+internal_coupling:
+   # auto_detect: If true, tries to discover internal packages from source files.
+   auto_detect: true
+   # packages: Explicit list of package prefixes to treat as internal.
+   # e.g., ["com.mycompany.app"]
+   packages: []
+
+# -----------------------------------------------------------------------------
+# FILE FILTERING
+# -----------------------------------------------------------------------------
+# Patterns follow glob: or regex: syntax. If no prefix is provided, glob: is assumed.
+# include: If not empty, only files matching at least one pattern will be analyzed.
+include: [] 
+# exclude: Files matching these patterns will be skipped (e.g., generated code, tests).
+exclude: [] 
+
+# -----------------------------------------------------------------------------
+# SLOC (SOURCE LINES OF CODE) METRICS
+# -----------------------------------------------------------------------------
+sloc:
+   # methodLimit: Maximum lines of code allowed in a single method.
+   # Flagged separately from ICP in some reports.
+   methodLimit: 24

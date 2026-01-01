@@ -34,7 +34,7 @@ class ConsoleReporter : ReportGenerator {
             val overLimitPercent =
                 if (analysis.totalClasses > 0) (overLimitCount.toDouble() / analysis.totalClasses) * 100 else 0.0
             appendLine(
-                "Classes over limit (>${config.limit}): ${if (overLimitCount > 0) RED else GREEN}$overLimitCount (${
+                "Classes over limit:      ${if (overLimitCount > 0) RED else GREEN}$overLimitCount (${
                     String.format(
                         "%.1f",
                         overLimitPercent

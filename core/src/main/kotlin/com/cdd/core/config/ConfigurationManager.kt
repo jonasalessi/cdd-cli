@@ -22,7 +22,27 @@ object ConfigurationManager {
             return tryLoad(yamlFile) { yaml.decodeFromString(CddConfig.serializer(), it) }
         }
         logger.info("No configuration file found in ${workingDir.absolutePath}. Using defaults.")
-        return CddConfig()
+        return createDefaultConfig()
+    }
+
+    private fun createDefaultConfig(): CddConfig {
+        val defaultMetrics = mapOf(
+            "code_branch" to 1.0,
+            "condition" to 1.0,
+            "internal_coupling" to 1.0,
+            "exception_handling" to 1.0
+        )
+        val defaultLimits = mapOf(".*" to 12.0)
+        return CddConfig(
+            metrics = mapOf(
+                "java" to mapOf(".*" to defaultMetrics),
+                "kotlin" to mapOf(".*" to defaultMetrics)
+            ),
+            icpLimits = mapOf(
+                "java" to defaultLimits,
+                "kotlin" to defaultLimits
+            )
+        )
     }
 
     /**
@@ -32,14 +52,14 @@ object ConfigurationManager {
     fun loadConfigFile(file: File): CddConfig {
         if (!file.exists()) {
             logger.error("Configuration file not found: ${file.absolutePath}. Using defaults.")
-            return CddConfig()
+            return createDefaultConfig()
         }
 
         return when (file.extension.lowercase()) {
             "yml", "yaml" -> tryLoad(file) { yaml.decodeFromString(CddConfig.serializer(), it) }
             else -> {
                 logger.error("Unsupported configuration file format: ${file.extension}. Expected .yml or .yaml. Using defaults.")
-                CddConfig()
+                createDefaultConfig()
             }
         }
     }
@@ -52,17 +72,22 @@ object ConfigurationManager {
             config
         } catch (e: Exception) {
             logger.error("Failed to load configuration from ${file.name}: ${e.message}. Using defaults.")
-            CddConfig()
+            createDefaultConfig()
         }
     }
 
     private fun validate(config: CddConfig) {
-        require(config.limit > 0) { "ICP limit must be greater than 0" }
-        require(config.sloc.methodLimit >= 0) { "SLOC method limit cannot be negative" }
-        require(config.sloc.classLimit >= 0) { "SLOC class limit cannot be negative" }
-
-        config.icpTypes.forEach { (type, weight) ->
-            require(weight >= 0) { "Weight for $type cannot be negative" }
+        config.metrics.forEach { (lang, patterns) ->
+            patterns.forEach { (pattern, metrics) ->
+                 metrics.forEach { (metric, value) ->
+                     require(value >= 0) { "Weight for $metric in $lang:$pattern must be greater than or equal to 0" }
+                 }
+            }
+        }
+        config.icpLimits.forEach { (lang, patterns) ->
+            patterns.forEach { (pattern, value) ->
+                require(value >= 0) { "Limit for $lang:$pattern must be greater than or equal to 0" }
+            }
         }
     }
 }
