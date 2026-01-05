@@ -22,27 +22,7 @@ object ConfigurationManager {
             return tryLoad(yamlFile) { yaml.decodeFromString(CddConfig.serializer(), it) }
         }
         logger.info("No configuration file found in ${workingDir.absolutePath}. Using defaults.")
-        return createDefaultConfig()
-    }
-
-    private fun createDefaultConfig(): CddConfig {
-        val defaultMetrics = mapOf(
-            "code_branch" to 1.0,
-            "condition" to 1.0,
-            "internal_coupling" to 1.0,
-            "exception_handling" to 1.0
-        )
-        val defaultLimits = mapOf(".*" to 12.0)
-        return CddConfig(
-            metrics = mapOf(
-                "java" to mapOf(".*" to defaultMetrics),
-                "kotlin" to mapOf(".*" to defaultMetrics)
-            ),
-            icpLimits = mapOf(
-                "java" to defaultLimits,
-                "kotlin" to defaultLimits
-            )
-        )
+        return CddConfig.DEFAULT
     }
 
     /**
@@ -52,14 +32,14 @@ object ConfigurationManager {
     fun loadConfigFile(file: File): CddConfig {
         if (!file.exists()) {
             logger.error("Configuration file not found: ${file.absolutePath}. Using defaults.")
-            return createDefaultConfig()
+            return CddConfig.DEFAULT
         }
 
         return when (file.extension.lowercase()) {
             "yml", "yaml" -> tryLoad(file) { yaml.decodeFromString(CddConfig.serializer(), it) }
             else -> {
                 logger.error("Unsupported configuration file format: ${file.extension}. Expected .yml or .yaml. Using defaults.")
-                createDefaultConfig()
+                CddConfig.DEFAULT
             }
         }
     }
@@ -67,12 +47,13 @@ object ConfigurationManager {
     private fun tryLoad(file: File, decoder: (String) -> CddConfig): CddConfig {
         return try {
             val content = file.readText()
-            val config = decoder(content)
-            validate(config)
-            config
+            val loadedConfig = decoder(content)
+            val mergedConfig = CddConfig.DEFAULT.mergeWith(loadedConfig)
+            validate(mergedConfig)
+            mergedConfig
         } catch (e: Exception) {
             logger.error("Failed to load configuration from ${file.name}: ${e.message}. Using defaults.")
-            createDefaultConfig()
+            CddConfig.DEFAULT
         }
     }
 

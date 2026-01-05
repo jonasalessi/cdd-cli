@@ -10,8 +10,10 @@ out
 **/build/
 !**/src/**/build/
 .cdd.yaml
-code/bin
+core/bin
 cli/bin
+debug
+
 # Ignore Gradle GUI config
 gradle-app.setting
 

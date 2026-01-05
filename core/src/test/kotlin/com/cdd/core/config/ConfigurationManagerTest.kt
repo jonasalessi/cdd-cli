@@ -1,9 +1,8 @@
 package com.cdd.core.config
 
 import io.kotest.core.spec.style.DescribeSpec
-import io.kotest.matchers.shouldBe
-import io.kotest.matchers.shouldNotBe
 import io.kotest.matchers.maps.shouldNotBeEmpty
+import io.kotest.matchers.shouldBe
 import java.io.File
 import java.nio.file.Files
 
@@ -47,7 +46,7 @@ class ConfigurationManagerTest : DescribeSpec({
         }
 
         it("should accept 0 as a valid limit") {
-             val yamlContent = """
+            val yamlContent = """
                 metrics:
                   java:
                     ".*":
@@ -115,7 +114,30 @@ class ConfigurationManagerTest : DescribeSpec({
 
             val config = ConfigurationManager.loadConfig(tempDir)
             // Should be defaults because validation failed
-            config.metrics["java"]?.get(".*")?.get("code_branch") shouldBe 1.0 
+            config.metrics["java"]?.get(".*")?.get("code_branch") shouldBe 1.0
+
+            yamlFile.delete()
+        }
+        it("should merge partial YAML with default values") {
+            val yamlContent = """
+                internal_coupling:
+                  auto_detect: false
+                  packages: [ "com.challenge" ]
+            """.trimIndent()
+            val yamlFile = File(tempDir, ".cdd.yml")
+            yamlFile.writeText(yamlContent)
+
+            val config = ConfigurationManager.loadConfig(tempDir)
+
+            config.internalCoupling.autoDetect shouldBe false
+            config.internalCoupling.packages shouldBe listOf("com.challenge")
+
+            config.metrics.shouldNotBeEmpty()
+            config.metrics["java"]!![".*"]!!["code_branch"] shouldBe 1.0
+            config.metrics["kotlin"]!![".*"]!!["condition"] shouldBe 1.0
+
+            config.icpLimits.shouldNotBeEmpty()
+            config.icpLimits["java"]!![".*"] shouldBe 12.0
 
             yamlFile.delete()
         }
