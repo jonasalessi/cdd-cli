@@ -31,10 +31,3 @@ gradle-app.setting
 .project
 # JDT-specific (Eclipse Java Development Tools)
 .classpath
-build
-.kotlin
-.vscode
-.idea
-htmlReport
-.prd
-.DS_Store
