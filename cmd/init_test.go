@@ -111,6 +111,20 @@ func TestInitFullFlagsMatchesGolden(t *testing.T) {
 	assert.Equal(t, string(want), string(got))
 }
 
+func TestInitMetricsFlagFilteredPerLanguage(t *testing.T) {
+	dir := t.TempDir()
+	_, stderr, code := runCdd(t, dir, "init",
+		"--languages", "go,java",
+		"--metrics", "code_branch,condition,inheritance,internal_coupling",
+	)
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+
+	cfg := loadConfig(t, dir)
+	assert.Len(t, cfg.Metrics[config.LangGo][0].Weights, 3, "inheritance does not apply to go")
+	assert.Len(t, cfg.Metrics[config.LangJava][0].Weights, 4)
+	assert.Contains(t, cfg.Metrics[config.LangJava][0].Weights, config.MetricInheritance)
+}
+
 func TestInitMeasureOnlyDisablesCI(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFixture(t, dir)

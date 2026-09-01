@@ -29,23 +29,80 @@ var displayNames = map[config.Language]string{
 	config.LangTypeScript: "TypeScript",
 }
 
-// Run walks through the interview in prompt order and returns the answers.
-// defaults pre-fills every question; det adds the file counts and, for a
-// cut-short scan, the notice to the language question.
+// packageExamples shows, per language, the shape of an internal package
+// prefix in the packages question.
+var packageExamples = map[config.Language]string{
+	config.LangGo:         "github.com/acme/api",
+	config.LangJava:       "com.acme.app",
+	config.LangKotlin:     "com.acme.app",
+	config.LangTypeScript: "@app/",
+}
+
+// Run walks through the interview as one multi-page form and returns the
+// answers. defaults pre-fills every question; det adds the file counts and,
+// for a cut-short scan, the notice to the language question. Pages that do
+// not apply to the answers given so far — the enforcement mode of a
+// greenfield project, the metrics of an unselected language — stay hidden,
+// and shift+tab navigates back.
 func Run(defaults initcmd.Answers, det detect.Detected) (initcmd.Answers, error) {
 	a := defaults
-	steps := []func(*initcmd.Answers) error{
-		func(a *initcmd.Answers) error { return askLanguages(a, det) },
-		askProjectType,
-		askLegacyMode,
-		askLimit,
-		askMetrics,
-		askWeights,
-		askPackages,
-		askExcludes,
+	if a.ProjectType == "" {
+		a.ProjectType = config.ProjectGreenfield
 	}
-	for _, step := range steps {
-		if err := step(&a); err != nil {
+	if a.LegacyMode == "" {
+		a.LegacyMode = config.ModeStrictOnNewOnly
+	}
+	limitRaw := ""
+	if a.Limit != 0 {
+		limitRaw = strconv.Itoa(a.Limit)
+	}
+	customize := false
+
+	groups := []*huh.Group{
+		languagesGroup(&a, det),
+		projectTypeGroup(&a),
+		legacyModeGroup(&a).WithHideFunc(func() bool { return hideLegacyMode(a.ProjectType) }),
+		limitGroup(&a, &limitRaw),
+	}
+	selections := make(map[config.Language]*[]config.MetricID, len(config.Languages()))
+	for _, lang := range config.Languages() {
+		sel := initcmd.SeedMetrics(a, lang)
+		selections[lang] = &sel
+		groups = append(groups, metricsGroup(lang, selections[lang]).
+			WithHideFunc(func() bool { return hideLanguagePage(lang, a.Languages) }))
+	}
+	groups = append(groups, weightsConfirmGroup(&customize))
+	pkgRaws := make(map[config.Language]*string, len(config.Languages()))
+	for _, lang := range config.Languages() {
+		raw := strings.Join(initcmd.SeedPackages(a, lang), ", ")
+		pkgRaws[lang] = &raw
+		groups = append(groups, packagesGroup(lang, pkgRaws[lang]).
+			WithHideFunc(func() bool { return hideLanguagePage(lang, a.Languages) }))
+	}
+	groups = append(groups, excludesGroup(&a))
+	if err := huh.NewForm(groups...).Run(); err != nil {
+		return a, err
+	}
+
+	a.Limit = 0
+	if raw := strings.TrimSpace(limitRaw); raw != "" {
+		limit, err := strconv.Atoi(raw)
+		if err != nil {
+			return a, err
+		}
+		a.Limit = limit
+	}
+	a.MetricsByLanguage = make(map[config.Language][]config.MetricID, len(a.Languages))
+	a.PackagesByLanguage = make(map[config.Language][]string, len(a.Languages))
+	for _, lang := range a.Languages {
+		a.MetricsByLanguage[lang] = *selections[lang]
+		if pkgs := parseCSV(*pkgRaws[lang]); len(pkgs) > 0 {
+			a.PackagesByLanguage[lang] = pkgs
+		}
+	}
+	a.Packages = nil
+	if customize {
+		if err := runWeightsForm(&a); err != nil {
 			return a, err
 		}
 	}
@@ -56,36 +113,29 @@ func Run(defaults initcmd.Answers, det detect.Detected) (initcmd.Answers, error)
 // The default answer is no.
 func ConfirmOverwrite(path string) (bool, error) {
 	overwrite := false
-	err := runField(huh.NewConfirm().
+	err := huh.NewForm(huh.NewGroup(huh.NewConfirm().
 		Title(fmt.Sprintf("%s already exists. Overwrite?", path)).
-		Value(&overwrite))
+		Value(&overwrite))).Run()
 	return overwrite, err
 }
 
-// runField shows a single question as its own form page.
-func runField(f huh.Field) error {
-	return huh.NewForm(huh.NewGroup(f)).Run()
-}
-
-func askLanguages(a *initcmd.Answers, det detect.Detected) error {
-	field := huh.NewMultiSelect[config.Language]().
+func languagesGroup(a *initcmd.Answers, det detect.Detected) *huh.Group {
+	description := "Detected languages are pre-checked"
+	if det.Truncated {
+		description += "; " + truncatedNotice(det.Elapsed)
+	}
+	return huh.NewGroup(huh.NewMultiSelect[config.Language]().
 		Title("Languages").
+		Description(description).
 		Options(languageOptions(det, a.Languages)...).
 		Validate(validateLanguages).
-		Value(&a.Languages)
-	if det.Truncated {
-		field = field.Description(truncatedNotice(det.Elapsed))
-	}
-	return runField(field)
+		Value(&a.Languages))
 }
 
-func askProjectType(a *initcmd.Answers) error {
-	if a.ProjectType == "" {
-		a.ProjectType = config.ProjectGreenfield
-	}
+func projectTypeGroup(a *initcmd.Answers) *huh.Group {
 	greenfieldLabel := config.ProjectGreenfield + ": strict from day one, limit 7-14 (cdd.md 4A)"
 	legacyLabel := config.ProjectLegacy + ": measure existing, enforce new, limit 20-40"
-	return runField(huh.NewSelect[string]().
+	return huh.NewGroup(huh.NewSelect[string]().
 		Title("Project type").
 		Options(
 			huh.NewOption(greenfieldLabel, config.ProjectGreenfield),
@@ -94,14 +144,8 @@ func askProjectType(a *initcmd.Answers) error {
 		Value(&a.ProjectType))
 }
 
-func askLegacyMode(a *initcmd.Answers) error {
-	if a.ProjectType != config.ProjectLegacy {
-		return nil
-	}
-	if a.LegacyMode == "" {
-		a.LegacyMode = config.ModeStrictOnNewOnly
-	}
-	return runField(huh.NewSelect[string]().
+func legacyModeGroup(a *initcmd.Answers) *huh.Group {
+	return huh.NewGroup(huh.NewSelect[string]().
 		Title("Enforcement mode").
 		Options(
 			huh.NewOption(config.ModeStrictOnNewOnly+": existing files are measured only, new files must comply",
@@ -113,82 +157,78 @@ func askLegacyMode(a *initcmd.Answers) error {
 		Value(&a.LegacyMode))
 }
 
-func askLimit(a *initcmd.Answers) error {
-	if a.Limit == 0 {
-		a.Limit = config.DefaultLimit(a.ProjectType)
-	}
-	raw := strconv.Itoa(a.Limit)
-	projectType := a.ProjectType
-	err := runField(huh.NewInput().
+func limitGroup(a *initcmd.Answers, raw *string) *huh.Group {
+	// The char limit keeps huh's width math non-negative on very narrow
+	// terminals, where rendering an empty input's placeholder panics.
+	return huh.NewGroup(huh.NewInput().
 		Title("ICP limit").
-		DescriptionFunc(func() string { return limitDescription(projectType, raw) }, &raw).
+		CharLimit(4).
+		PlaceholderFunc(func() string { return limitPlaceholder(a.ProjectType) }, &a.ProjectType).
+		DescriptionFunc(func() string { return limitDescription(a.ProjectType, *raw) },
+			&struct {
+				ProjectType *string
+				Raw         *string
+			}{&a.ProjectType, raw}).
 		Validate(validateLimit).
-		Value(&raw))
-	if err != nil {
-		return err
-	}
-	limit, err := strconv.Atoi(strings.TrimSpace(raw))
-	if err != nil {
-		return err
-	}
-	a.Limit = limit
-	return nil
+		Value(raw))
 }
 
-// askMetrics keeps asking until every selected language keeps at least the
-// minimum number of applicable metrics; initcmd.Build is the judge.
-func askMetrics(a *initcmd.Answers) error {
-	if len(a.Metrics) == 0 {
-		a.Metrics = config.DefaultSelection()
-	}
-	note := ""
-	for {
-		field := huh.NewMultiSelect[config.MetricID]().
-			Title("Metrics").
-			Options(metricOptions(a.Metrics)...).
-			Validate(validateMetrics).
-			Value(&a.Metrics)
-		if note != "" {
-			field = field.Description(note)
-		}
-		if err := runField(field); err != nil {
-			return err
-		}
-		var few initcmd.ErrTooFewMetrics
-		if _, _, err := initcmd.Build(*a); errors.As(err, &few) {
-			note = few.Error()
-			continue
-		}
-		return nil
-	}
+func metricsGroup(lang config.Language, sel *[]config.MetricID) *huh.Group {
+	name := languageLabel(lang, 0)
+	return huh.NewGroup(huh.NewMultiSelect[config.MetricID]().
+		Title("Metrics — " + name).
+		Description(fmt.Sprintf("Only metrics the %s analyzer can count; pick at least %d", name, config.MinMetrics)).
+		Options(metricOptionsFor(lang, *sel)...).
+		Validate(validateMetrics).
+		Value(sel))
 }
 
-func askWeights(a *initcmd.Answers) error {
-	customize := false
-	err := runField(huh.NewConfirm().
+func weightsConfirmGroup(customize *bool) *huh.Group {
+	return huh.NewGroup(huh.NewConfirm().
 		Title("Customize weights?").
 		Description("Defaults: 1.0, except external_coupling and local_variable at 0.5").
-		Value(&customize))
-	if err != nil || !customize {
-		return err
-	}
-	values := make([]string, len(a.Metrics))
-	fields := make([]huh.Field, len(a.Metrics))
-	for i, id := range a.Metrics {
+		Value(customize))
+}
+
+func packagesGroup(lang config.Language, raw *string) *huh.Group {
+	return huh.NewGroup(huh.NewInput().
+		Title("Internal packages — " + languageLabel(lang, 0)).
+		Description(packagesHintFor(lang)).
+		Value(raw))
+}
+
+func excludesGroup(a *initcmd.Answers) *huh.Group {
+	return huh.NewGroup(huh.NewConfirm().
+		Title("Exclude tests and generated code?").
+		DescriptionFunc(func() string { return excludesDescription(a.Languages) }, &a.Languages).
+		Value(&a.DefaultExcludes))
+}
+
+// runWeightsForm asks one weight per metric selected by any language and
+// stores the overrides.
+func runWeightsForm(a *initcmd.Answers) error {
+	union := metricsUnion(*a)
+	values := make([]string, len(union))
+	fields := make([]huh.Field, len(union))
+	for i, id := range union {
 		weight := config.DefaultWeight(id)
 		if override, ok := a.Weights[id]; ok {
 			weight = override
 		}
 		values[i] = strconv.FormatFloat(weight, 'f', -1, 64)
-		fields[i] = huh.NewInput().Title(string(id)).Validate(validateWeight).Value(&values[i])
+		fields[i] = huh.NewInput().
+			Title(string(id)).
+			Description(weightDescription(*a, id)).
+			Validate(validateWeight).
+			Value(&values[i])
 	}
 	if err := huh.NewForm(huh.NewGroup(fields...)).Run(); err != nil {
 		return err
 	}
 	if a.Weights == nil {
-		a.Weights = make(map[config.MetricID]float64, len(a.Metrics))
+		a.Weights = make(map[config.MetricID]float64, len(union))
 	}
-	for i, id := range a.Metrics {
+	for i, id := range union {
 		weight, err := parseWeight(values[i])
 		if err != nil {
 			return err
@@ -198,23 +238,14 @@ func askWeights(a *initcmd.Answers) error {
 	return nil
 }
 
-func askPackages(a *initcmd.Answers) error {
-	raw := strings.Join(a.Packages, ", ")
-	err := runField(huh.NewInput().
-		Title("Internal packages").
-		Description("Comma-separated prefixes counted as internal coupling").
-		Value(&raw))
-	if err != nil {
-		return err
-	}
-	a.Packages = parseCSV(raw)
-	return nil
+// hideLegacyMode hides the enforcement-mode page for greenfield projects.
+func hideLegacyMode(projectType string) bool {
+	return projectType != config.ProjectLegacy
 }
 
-func askExcludes(a *initcmd.Answers) error {
-	return runField(huh.NewConfirm().
-		Title("Exclude tests and generated code?").
-		Value(&a.DefaultExcludes))
+// hideLanguagePage hides a per-language page of an unselected language.
+func hideLanguagePage(lang config.Language, selected []config.Language) bool {
+	return !slices.Contains(selected, lang)
 }
 
 // languageOptions lists every known language, labels the detected ones with
@@ -247,22 +278,103 @@ func truncatedNotice(elapsed time.Duration) string {
 	return fmt.Sprintf("scan stopped after %s, tick anything missing", elapsed.Round(time.Millisecond))
 }
 
-// metricOptions lists every metric with its description and pre-checks the
-// current selection.
-func metricOptions(selected []config.MetricID) []huh.Option[config.MetricID] {
-	out := make([]huh.Option[config.MetricID], 0, len(config.Metrics()))
-	for _, id := range config.Metrics() {
-		label := fmt.Sprintf("%s: %s", id, config.MetricDescription(id, ""))
+// metricOptionsFor lists the metrics the language's analyzer can count, each
+// described in the language's own wording, and pre-checks the seed.
+func metricOptionsFor(lang config.Language, selected []config.MetricID) []huh.Option[config.MetricID] {
+	applicable := config.Applicable(lang)
+	out := make([]huh.Option[config.MetricID], 0, len(applicable))
+	for _, id := range applicable {
+		label := fmt.Sprintf("%s: %s", id, config.MetricDescription(id, lang))
 		out = append(out, huh.NewOption(label, id).Selected(slices.Contains(selected, id)))
 	}
 	return out
+}
+
+// metricsUnion joins the per-language selections in canonical metric order.
+func metricsUnion(a initcmd.Answers) []config.MetricID {
+	present := map[config.MetricID]bool{}
+	for _, lang := range a.Languages {
+		for _, id := range a.MetricsByLanguage[lang] {
+			present[id] = true
+		}
+	}
+	var out []config.MetricID
+	for _, id := range config.Metrics() {
+		if present[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// weightDescription describes a weight input: the language's own wording
+// when exactly one selected language counts the metric, and a note naming
+// the languages it applies to when it is not counted by all of them.
+func weightDescription(a initcmd.Answers, id config.MetricID) string {
+	var owners []config.Language
+	for _, lang := range a.Languages {
+		if slices.Contains(a.MetricsByLanguage[lang], id) {
+			owners = append(owners, lang)
+		}
+	}
+	lang := config.Language("")
+	if len(owners) == 1 {
+		lang = owners[0]
+	}
+	description := config.MetricDescription(id, lang)
+	if len(owners) < len(a.Languages) {
+		ids := make([]string, len(owners))
+		for i, owner := range owners {
+			ids[i] = string(owner)
+		}
+		description += " — applies to: " + strings.Join(ids, ", ")
+	}
+	return description
+}
+
+// packagesHintFor shows the prefix format of the language.
+func packagesHintFor(lang config.Language) string {
+	base := "Comma-separated prefixes counted as internal coupling"
+	example, ok := packageExamples[lang]
+	if !ok {
+		return base
+	}
+	return base + ", e.g. " + example
+}
+
+// excludesDescription lists the globs a yes answer writes for the selected
+// languages, deduplicated in canonical language order.
+func excludesDescription(langs []config.Language) string {
+	var globs []string
+	seen := map[string]bool{}
+	for _, lang := range config.Languages() {
+		if !slices.Contains(langs, lang) {
+			continue
+		}
+		for _, glob := range config.DefaultExcludes(lang) {
+			if !seen[glob] {
+				seen[glob] = true
+				globs = append(globs, glob)
+			}
+		}
+	}
+	if len(globs) == 0 {
+		return ""
+	}
+	return "Will exclude: " + strings.Join(globs, ", ")
+}
+
+// limitPlaceholder shows the default limit of the chosen project type.
+func limitPlaceholder(projectType string) string {
+	return strconv.Itoa(config.DefaultLimit(projectType))
 }
 
 // limitDescription shows the recommended band and, for a value outside it,
 // an inline warning that does not block the input.
 func limitDescription(projectType, raw string) string {
 	lo, hi := config.LimitBand(projectType)
-	base := fmt.Sprintf("Recommended %s band: %d-%d", projectType, lo, hi)
+	base := fmt.Sprintf("Recommended %s band: %d-%d (empty keeps the default %d)",
+		projectType, lo, hi, config.DefaultLimit(projectType))
 	limit, err := strconv.Atoi(strings.TrimSpace(raw))
 	if err == nil && (limit < lo || limit > hi) {
 		return fmt.Sprintf("%s. Warning: %d is outside the band, accepted anyway", base, limit)
@@ -284,8 +396,14 @@ func validateMetrics(selected []config.MetricID) error {
 	return nil
 }
 
+// validateLimit accepts a whole number of at least 1 or an empty input,
+// which keeps the default of the project type.
 func validateLimit(raw string) error {
-	limit, err := strconv.Atoi(strings.TrimSpace(raw))
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	limit, err := strconv.Atoi(raw)
 	if err != nil {
 		return errors.New("enter a whole number")
 	}

@@ -68,12 +68,12 @@ func normalize(a Answers) (Answers, []string, error) {
 	}
 	a.Limit = limit
 	warnings = append(warnings, limitWarnings...)
-	metrics, err := normalizeMetrics(a.Metrics)
+	byLang, err := resolveMetrics(a)
 	if err != nil {
 		return a, nil, err
 	}
-	a.Metrics = metrics
-	if err := checkWeights(a.Metrics, a.Weights); err != nil {
+	a.MetricsByLanguage = byLang
+	if err := checkWeights(selectionUnion(byLang), a.Weights); err != nil {
 		return a, nil, err
 	}
 	if a.Timeout == 0 {
@@ -82,8 +82,20 @@ func normalize(a Answers) (Answers, []string, error) {
 	if a.Timeout < 0 {
 		return a, nil, fmt.Errorf("timeout %s must not be negative", a.Timeout)
 	}
-	a.Packages = cleanList(a.Packages)
+	a.Packages = resolvePackages(a)
 	return a, warnings, nil
+}
+
+// resolvePackages merges the flat prefix list with the per-language lists of
+// the selected languages, deduplicated in canonical language order.
+func resolvePackages(a Answers) []string {
+	merged := append([]string(nil), a.Packages...)
+	for _, lang := range config.Languages() {
+		if slices.Contains(a.Languages, lang) {
+			merged = append(merged, a.PackagesByLanguage[lang]...)
+		}
+	}
+	return cleanList(merged)
 }
 
 // normalizeLanguages requires at least one known language and drops
@@ -150,13 +162,32 @@ func normalizeLimit(projectType string, limit int) (int, []string, error) {
 	return limit, nil, nil
 }
 
-// normalizeMetrics resolves the metric selection: nil becomes the default
-// selection, ids must be known and, after dropping duplicates, at least
-// config.MinMetrics must remain.
-func normalizeMetrics(sel []config.MetricID) ([]config.MetricID, error) {
-	if len(sel) == 0 {
-		sel = config.DefaultSelection()
+// resolveMetrics settles the metric selection of every language: its
+// MetricsByLanguage entry when non-empty, else the global Metrics list, else
+// the default selection. Ids must be known; duplicates are dropped. The
+// minimum count is judged later, after applicability filtering.
+func resolveMetrics(a Answers) (map[config.Language][]config.MetricID, error) {
+	out := make(map[config.Language][]config.MetricID, len(a.Languages))
+	for _, lang := range a.Languages {
+		sel := a.MetricsByLanguage[lang]
+		if len(sel) == 0 {
+			sel = a.Metrics
+		}
+		if len(sel) == 0 {
+			sel = config.DefaultSelection()
+		}
+		clean, err := normalizeSelection(sel)
+		if err != nil {
+			return nil, err
+		}
+		out[lang] = clean
 	}
+	return out, nil
+}
+
+// normalizeSelection validates the ids against the vocabulary and drops
+// duplicates, keeping the given order.
+func normalizeSelection(sel []config.MetricID) ([]config.MetricID, error) {
 	var out []config.MetricID
 	seen := map[config.MetricID]bool{}
 	for _, id := range sel {
@@ -168,14 +199,28 @@ func normalizeMetrics(sel []config.MetricID) ([]config.MetricID, error) {
 			out = append(out, id)
 		}
 	}
-	if len(out) < config.MinMetrics {
-		return nil, fmt.Errorf("%d metrics selected, at least %d are required", len(out), config.MinMetrics)
-	}
 	return out, nil
 }
 
-// checkWeights rejects overrides for unknown or unselected metrics and any
-// weight at or below zero.
+// selectionUnion joins the per-language selections in canonical metric order.
+func selectionUnion(byLang map[config.Language][]config.MetricID) []config.MetricID {
+	present := map[config.MetricID]bool{}
+	for _, sel := range byLang {
+		for _, id := range sel {
+			present[id] = true
+		}
+	}
+	var out []config.MetricID
+	for _, id := range config.Metrics() {
+		if present[id] {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// checkWeights rejects overrides for unknown metrics, for metrics no
+// language selected, and any weight at or below zero.
 func checkWeights(selected []config.MetricID, weights map[config.MetricID]float64) error {
 	ids := make([]string, 0, len(weights))
 	for id := range weights {
@@ -203,8 +248,9 @@ func checkWeights(selected []config.MetricID, weights map[config.MetricID]float6
 func metricsByLanguage(a Answers) (map[config.Language]map[config.MetricID]float64, error) {
 	out := make(map[config.Language]map[config.MetricID]float64, len(a.Languages))
 	for _, lang := range a.Languages {
-		weights := make(map[config.MetricID]float64, len(a.Metrics))
-		for _, id := range a.Metrics {
+		sel := a.MetricsByLanguage[lang]
+		weights := make(map[config.MetricID]float64, len(sel))
+		for _, id := range sel {
 			if !config.IsApplicable(lang, id) {
 				continue
 			}
