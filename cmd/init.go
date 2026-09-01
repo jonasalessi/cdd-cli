@@ -51,8 +51,10 @@ It walks through the first two steps of CDD (docs/cdd.md, section 3):
   2. Pick the ICP limit a code unit may not exceed, calibrated on whether the
      project is greenfield (7-14, default 10) or legacy (20-40, default 25).
 
-Without flags the command asks each question interactively. Every answer can
-also be given as a flag, and --yes skips the questions entirely.`,
+Without flags the command asks each question interactively; the metric
+question is asked once per selected language, offering only the metrics that
+language's analyzer can count. Every answer can also be given as a flag, and
+--yes skips the questions entirely.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
 			return runInit(c, opts)
@@ -174,8 +176,15 @@ func gatherDefaults(opts *initOptions) (initcmd.Answers, detect.Detected, error)
 		a.Languages = det.Languages()
 	}
 	if len(a.Packages) == 0 {
-		if a.Packages, err = detect.Packages(".", a.Languages); err != nil {
-			return a, det, err
+		a.PackagesByLanguage = make(map[config.Language][]string, len(a.Languages))
+		for _, lang := range a.Languages {
+			pkgs, err := detect.Packages(".", []config.Language{lang})
+			if err != nil {
+				return a, det, err
+			}
+			if len(pkgs) > 0 {
+				a.PackagesByLanguage[lang] = pkgs
+			}
 		}
 	}
 	return a, det, nil

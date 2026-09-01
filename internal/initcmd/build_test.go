@@ -173,6 +173,121 @@ func TestBuildTooFewMetricsForLanguage(t *testing.T) {
 	assert.Contains(t, err.Error(), "go")
 }
 
+func TestBuildMetricsByLanguage(t *testing.T) {
+	t.Run("each language keeps its own selection", func(t *testing.T) {
+		a := Answers{
+			Languages: []config.Language{config.LangGo, config.LangJava},
+			MetricsByLanguage: map[config.Language][]config.MetricID{
+				config.LangGo: {
+					config.MetricCodeBranch, config.MetricCondition, config.MetricLambda,
+				},
+				config.LangJava: {
+					config.MetricCodeBranch, config.MetricInheritance,
+					config.MetricExceptionHandling, config.MetricInternalCoupling,
+				},
+			},
+		}
+		cfg, _, err := Build(a)
+		require.NoError(t, err)
+		assert.Len(t, cfg.Metrics[config.LangGo][0].Weights, 3)
+		assert.Len(t, cfg.Metrics[config.LangJava][0].Weights, 4)
+		assert.Contains(t, cfg.Metrics[config.LangJava][0].Weights, config.MetricInheritance)
+		assert.NotContains(t, cfg.Metrics[config.LangGo][0].Weights, config.MetricInheritance)
+	})
+	t.Run("a language missing from the map falls back to the global list", func(t *testing.T) {
+		a := Answers{
+			Languages: []config.Language{config.LangGo, config.LangJava},
+			Metrics: []config.MetricID{
+				config.MetricCodeBranch, config.MetricCondition, config.MetricInternalCoupling,
+			},
+			MetricsByLanguage: map[config.Language][]config.MetricID{
+				config.LangJava: {
+					config.MetricCodeBranch, config.MetricInheritance, config.MetricExceptionHandling,
+				},
+			},
+		}
+		cfg, _, err := Build(a)
+		require.NoError(t, err)
+		assert.Len(t, cfg.Metrics[config.LangGo][0].Weights, 3)
+		assert.Contains(t, cfg.Metrics[config.LangJava][0].Weights, config.MetricInheritance)
+	})
+	t.Run("without map and list every language gets the default selection", func(t *testing.T) {
+		a := Answers{Languages: []config.Language{config.LangGo, config.LangJava}}
+		cfg, _, err := Build(a)
+		require.NoError(t, err)
+		assert.Len(t, cfg.Metrics[config.LangGo][0].Weights, 4,
+			"default selection minus exception_handling and inheritance")
+		assert.Len(t, cfg.Metrics[config.LangJava][0].Weights, len(config.DefaultSelection()))
+	})
+	t.Run("unknown id in a map entry names it", func(t *testing.T) {
+		a := goAnswers()
+		a.MetricsByLanguage = map[config.Language][]config.MetricID{
+			config.LangGo: {"karma", config.MetricCondition, config.MetricCodeBranch},
+		}
+		_, _, err := Build(a)
+		assert.ErrorContains(t, err, `"karma"`)
+	})
+	t.Run("map entry left under the minimum after filtering", func(t *testing.T) {
+		a := goAnswers()
+		a.MetricsByLanguage = map[config.Language][]config.MetricID{
+			config.LangGo: {
+				config.MetricCondition, config.MetricExceptionHandling, config.MetricInheritance,
+			},
+		}
+		_, _, err := Build(a)
+		var few ErrTooFewMetrics
+		require.ErrorAs(t, err, &few)
+		assert.Equal(t, config.LangGo, few.Language)
+		assert.Equal(t, 1, few.Have)
+	})
+}
+
+func TestBuildWeightsAgainstUnion(t *testing.T) {
+	t.Run("a weight for a metric one language selected is applied there only", func(t *testing.T) {
+		a := Answers{
+			Languages: []config.Language{config.LangGo, config.LangJava},
+			MetricsByLanguage: map[config.Language][]config.MetricID{
+				config.LangGo: {
+					config.MetricCodeBranch, config.MetricCondition, config.MetricInternalCoupling,
+				},
+				config.LangJava: {
+					config.MetricCodeBranch, config.MetricCondition, config.MetricInheritance,
+				},
+			},
+			Weights: map[config.MetricID]float64{config.MetricInheritance: 2},
+		}
+		cfg, _, err := Build(a)
+		require.NoError(t, err)
+		assert.Equal(t, 2.0, cfg.Metrics[config.LangJava][0].Weights[config.MetricInheritance])
+		assert.NotContains(t, cfg.Metrics[config.LangGo][0].Weights, config.MetricInheritance)
+	})
+	t.Run("a weight for a metric no language selected is rejected", func(t *testing.T) {
+		a := goAnswers()
+		a.Weights = map[config.MetricID]float64{config.MetricLambda: 2}
+		_, _, err := Build(a)
+		assert.ErrorContains(t, err, "not selected")
+	})
+}
+
+func TestSeedMetrics(t *testing.T) {
+	t.Run("defaults filtered to what go can count", func(t *testing.T) {
+		assert.Equal(t, []config.MetricID{
+			config.MetricCodeBranch, config.MetricCondition,
+			config.MetricInternalCoupling, config.MetricExternalCoupling,
+		}, SeedMetrics(Answers{}, config.LangGo))
+	})
+	t.Run("java keeps the full default selection", func(t *testing.T) {
+		assert.Equal(t, config.DefaultSelection(), SeedMetrics(Answers{}, config.LangJava))
+	})
+	t.Run("a global list is respected, filtered and kept in order", func(t *testing.T) {
+		a := Answers{Metrics: []config.MetricID{
+			config.MetricLambda, config.MetricInheritance, config.MetricCodeBranch,
+		}}
+		assert.Equal(t, []config.MetricID{config.MetricLambda, config.MetricCodeBranch},
+			SeedMetrics(a, config.LangGo))
+	})
+}
+
 func TestBuildWeightOverride(t *testing.T) {
 	a := goAnswers()
 	a.Weights = map[config.MetricID]float64{config.MetricExternalCoupling: 0.25}
@@ -208,6 +323,49 @@ func TestBuildPackagesPassthrough(t *testing.T) {
 	cfg, _, err := Build(a)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"com.acme", "org.other"}, cfg.InternalCoupling.Packages)
+}
+
+func TestBuildPackagesByLanguage(t *testing.T) {
+	t.Run("merged in canonical order without duplicates", func(t *testing.T) {
+		a := Answers{
+			Languages: []config.Language{config.LangJava, config.LangGo},
+			Packages:  []string{"shared.prefix"},
+			PackagesByLanguage: map[config.Language][]string{
+				config.LangGo:   {"github.com/acme/api", "shared.prefix"},
+				config.LangJava: {"com.acme.app"},
+			},
+		}
+		cfg, _, err := Build(a)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"shared.prefix", "github.com/acme/api", "com.acme.app"},
+			cfg.InternalCoupling.Packages)
+	})
+	t.Run("entries of unselected languages are dropped", func(t *testing.T) {
+		a := goAnswers()
+		a.PackagesByLanguage = map[config.Language][]string{
+			config.LangGo:   {"github.com/acme/api"},
+			config.LangJava: {"com.acme.app"},
+		}
+		cfg, _, err := Build(a)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"github.com/acme/api"}, cfg.InternalCoupling.Packages)
+	})
+}
+
+func TestSeedPackages(t *testing.T) {
+	byLang := Answers{
+		Packages: []string{"flag.prefix"},
+		PackagesByLanguage: map[config.Language][]string{
+			config.LangGo: {"github.com/acme/api"},
+		},
+	}
+	assert.Equal(t, []string{"github.com/acme/api"}, SeedPackages(byLang, config.LangGo))
+	assert.Empty(t, SeedPackages(byLang, config.LangJava),
+		"a language absent from the map seeds empty when the map exists")
+
+	flat := Answers{Packages: []string{"flag.prefix"}}
+	assert.Equal(t, []string{"flag.prefix"}, SeedPackages(flat, config.LangGo),
+		"without the map every page seeds from the flat list")
 }
 
 func TestBuildDuplicateInputsAreDropped(t *testing.T) {

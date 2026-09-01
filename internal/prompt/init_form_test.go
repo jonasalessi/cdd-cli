@@ -1,6 +1,7 @@
 package prompt
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -8,6 +9,7 @@ import (
 
 	"github.com/jonasalessi/cdd-cli/internal/config"
 	"github.com/jonasalessi/cdd-cli/internal/detect"
+	"github.com/jonasalessi/cdd-cli/internal/initcmd"
 )
 
 func TestValidateLimit(t *testing.T) {
@@ -17,7 +19,8 @@ func TestValidateLimit(t *testing.T) {
 	assert.Error(t, validateLimit("-2"))
 	assert.Error(t, validateLimit("ten"))
 	assert.Error(t, validateLimit("1.5"))
-	assert.Error(t, validateLimit(""))
+	assert.NoError(t, validateLimit(""), "empty keeps the project-type default")
+	assert.NoError(t, validateLimit("  "))
 }
 
 func TestParseWeight(t *testing.T) {
@@ -86,8 +89,100 @@ func TestLanguageOptionsPreselection(t *testing.T) {
 	assert.Equal(t, config.LangGo, options[0].Value)
 }
 
-func TestMetricOptionsCarryDescriptions(t *testing.T) {
-	options := metricOptions(config.DefaultSelection())
-	assert.Len(t, options, len(config.Metrics()))
-	assert.Contains(t, options[0].Key, "code_branch: ")
+// TestGroupBuildersConstruct exercises every page builder; the forms
+// themselves are not driven in tests.
+func TestGroupBuildersConstruct(t *testing.T) {
+	a := initcmd.Answers{Languages: []config.Language{config.LangGo}}
+	det := detect.Detected{Truncated: true, Elapsed: time.Second,
+		Counts: map[config.Language]int{config.LangGo: 2}}
+	raw := ""
+	sel := []config.MetricID{config.MetricCodeBranch}
+	customize := false
+	assert.NotNil(t, languagesGroup(&a, det))
+	assert.NotNil(t, projectTypeGroup(&a))
+	assert.NotNil(t, legacyModeGroup(&a))
+	assert.NotNil(t, limitGroup(&a, &raw))
+	assert.NotNil(t, metricsGroup(config.LangGo, &sel))
+	assert.NotNil(t, weightsConfirmGroup(&customize))
+	assert.NotNil(t, packagesGroup(config.LangGo, &raw))
+	assert.NotNil(t, excludesGroup(&a))
+}
+
+func TestMetricOptionsOnlyApplicable(t *testing.T) {
+	options := metricOptionsFor(config.LangGo, config.DefaultSelection())
+	assert.Len(t, options, len(config.Applicable(config.LangGo)))
+	assert.Equal(t, "code_branch: if/else, switch/select, for", options[0].Key,
+		"labels use the language's own wording")
+	for _, opt := range options {
+		assert.NotEqual(t, config.MetricInheritance, opt.Value)
+		assert.NotEqual(t, config.MetricExceptionHandling, opt.Value)
+	}
+
+	javaOptions := metricOptionsFor(config.LangJava, nil)
+	assert.Len(t, javaOptions, len(config.Metrics()))
+}
+
+func TestHidePredicates(t *testing.T) {
+	assert.True(t, hideLegacyMode(config.ProjectGreenfield))
+	assert.False(t, hideLegacyMode(config.ProjectLegacy))
+
+	selected := []config.Language{config.LangGo}
+	assert.False(t, hideLanguagePage(config.LangGo, selected))
+	assert.True(t, hideLanguagePage(config.LangJava, selected))
+}
+
+func TestLimitPlaceholder(t *testing.T) {
+	assert.Equal(t, "10", limitPlaceholder(config.ProjectGreenfield))
+	assert.Equal(t, "25", limitPlaceholder(config.ProjectLegacy))
+}
+
+func TestPackagesHintFor(t *testing.T) {
+	assert.Contains(t, packagesHintFor(config.LangGo), "github.com/acme/api")
+	assert.Contains(t, packagesHintFor(config.LangTypeScript), "@app/")
+	assert.NotContains(t, packagesHintFor(config.LangGo), "com.acme.app")
+
+	assert.NotContains(t, packagesHintFor(config.Language("elm")), "e.g.",
+		"unknown languages get no example")
+}
+
+func TestExcludesDescription(t *testing.T) {
+	desc := excludesDescription([]config.Language{config.LangJava, config.LangKotlin})
+	assert.Contains(t, desc, "**/src/test/**")
+	assert.Equal(t, 1, strings.Count(desc, "**/build/**"), "shared globs listed once")
+	assert.NotContains(t, desc, "vendor/**")
+
+	assert.Empty(t, excludesDescription(nil))
+}
+
+func TestMetricsUnion(t *testing.T) {
+	a := initcmd.Answers{
+		Languages: []config.Language{config.LangGo, config.LangJava},
+		MetricsByLanguage: map[config.Language][]config.MetricID{
+			config.LangGo:   {config.MetricCondition, config.MetricCodeBranch},
+			config.LangJava: {config.MetricInheritance, config.MetricCondition},
+		},
+	}
+	assert.Equal(t, []config.MetricID{
+		config.MetricCodeBranch, config.MetricCondition, config.MetricInheritance,
+	}, metricsUnion(a), "canonical order, no duplicates")
+}
+
+func TestWeightDescription(t *testing.T) {
+	a := initcmd.Answers{
+		Languages: []config.Language{config.LangGo, config.LangJava},
+		MetricsByLanguage: map[config.Language][]config.MetricID{
+			config.LangGo:   {config.MetricCodeBranch, config.MetricCondition},
+			config.LangJava: {config.MetricCodeBranch, config.MetricInheritance},
+		},
+	}
+	shared := weightDescription(a, config.MetricCodeBranch)
+	assert.NotContains(t, shared, "applies to", "metrics counted by every language carry no note")
+	assert.Equal(t, config.MetricDescription(config.MetricCodeBranch, ""), shared)
+
+	partial := weightDescription(a, config.MetricInheritance)
+	assert.Contains(t, partial, "applies to: java")
+
+	goOnly := weightDescription(a, config.MetricCondition)
+	assert.Equal(t, config.MetricDescription(config.MetricCondition, config.LangGo)+" — applies to: go", goOnly,
+		"a single owner gets its language's wording")
 }
