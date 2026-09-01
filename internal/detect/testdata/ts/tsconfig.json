@@ -1,0 +1,10 @@
+{
+  // JSONC: comments and trailing commas are tolerated
+  "compilerOptions": {
+    /* path aliases */
+    "paths": {
+      "@app/*": ["src/app/*"],
+      "@lib/*": ["src/lib/*"],
+    },
+  },
+}

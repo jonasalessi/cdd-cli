@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,8 +29,7 @@ condition, coupling or exception block adds Intrinsic Complexity Points (ICPs)
 to a code unit, and a unit above the agreed limit must be refactored before it
 is merged.
 
-The method, the ICP vocabulary and the limit bands are described in
-docs/cdd.md. Run "cdd init" to write a cdd.config.yaml for your project.`,
+Run "cdd init" to write a cdd.config.yaml for your project.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -48,8 +48,20 @@ func Execute() int {
 
 func execute(c *cobra.Command, stderr io.Writer) int {
 	if err := c.Execute(); err != nil {
+		var ec exitCodeError
+		if errors.As(err, &ec) {
+			return ec.code
+		}
 		fmt.Fprintf(stderr, "cdd: %v\n", err)
 		return 1
 	}
 	return 0
+}
+
+// exitCodeError carries a specific exit code out of a RunE without printing
+// anything; init uses it for the ctrl-c convention, code 130.
+type exitCodeError struct{ code int }
+
+func (e exitCodeError) Error() string {
+	return fmt.Sprintf("exit code %d", e.code)
 }
