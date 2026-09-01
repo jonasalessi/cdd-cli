@@ -1,0 +1,34 @@
+#!/bin/sh
+# Formats and lint-fixes staged Go files before every commit.
+# Fixed files are re-staged automatically; issues the linter cannot fix
+# block the commit so they never reach CI.
+
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR -- '*.go')
+[ -z "$staged" ] && exit 0
+
+# A partially staged file mixes staged and unstaged hunks; re-staging it
+# after a fix would silently commit the unstaged half. Refuse instead.
+partial=""
+for f in $staged; do
+  if ! git diff --quiet -- "$f"; then
+    partial="$partial  $f
+"
+  fi
+done
+if [ -n "$partial" ]; then
+  echo "ERROR: these files are partially staged, so the pre-commit fixers cannot re-stage them safely:" >&2
+  printf '%s' "$partial" >&2
+  echo "Stage them fully (git add) or stash the unstaged part, then commit again." >&2
+  exit 1
+fi
+
+make -s fmt
+make -s bin/golangci-lint
+bin/golangci-lint run --fix
+make -s check-literals
+
+for f in $staged; do
+  git add -- "$f"
+done
