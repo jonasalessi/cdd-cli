@@ -26,7 +26,7 @@ func TestHelpListsSubcommands(t *testing.T) {
 	assert.Equal(t, 0, code)
 	assert.Contains(t, out, "init ")
 	assert.Contains(t, out, "version ")
-	assert.Contains(t, out, "docs/cdd.md")
+	assert.Contains(t, out, `Run "cdd init"`)
 	assert.Contains(t, out, `--config string`)
 	assert.Contains(t, out, `(default "cdd.config.yaml")`)
 }
@@ -45,12 +45,6 @@ func TestUnknownCommand(t *testing.T) {
 	_, stderr, code := run(t, "nope")
 	assert.Equal(t, 1, code)
 	assert.Contains(t, stderr, `cdd: unknown command "nope"`)
-}
-
-func TestInitStub(t *testing.T) {
-	_, stderr, code := run(t, "init")
-	assert.Equal(t, 1, code)
-	assert.Equal(t, "cdd: init: not implemented yet\n", stderr)
 }
 
 func TestInitHelpFlagSet(t *testing.T) {

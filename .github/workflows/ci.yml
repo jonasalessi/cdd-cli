@@ -28,3 +28,7 @@ jobs:
       - run: make test
       - run: make build
       - run: ./bin/cdd version
+      - name: dogfood config stays reproducible
+        run: |
+          ./bin/cdd init --yes --force --languages go --packages github.com/jonasalessi/cdd-cli
+          git diff --exit-code cdd.config.yaml
