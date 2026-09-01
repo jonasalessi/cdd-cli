@@ -1,22 +1,19 @@
 # Contributing to cdd-cli
 
-Thanks for your interest in contributing!
+## Run the setup first
 
-## Before you start (required)
-
-After cloning the repository, run the setup once:
+Clone the repo, then run this once:
 
 ```sh
 make setup
 ```
 
-This points git at the versioned hooks in `.githooks/`, which enforce the
-commit message format below. **Commits made without running `make setup`
-will not be validated locally and may be rejected during review.**
+It sets `core.hooksPath` to `.githooks/`, so git runs the `commit-msg` hook
+checked into this repo. The hook rejects any commit whose message does not
+match the format below. Skip the setup and git will happily accept a bad
+message, and the reviewer will ask you to rewrite it.
 
 ## Commit message format
-
-Every commit message must follow:
 
 ```
 <type>: <description>
@@ -24,21 +21,18 @@ Every commit message must follow:
 
 Allowed types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`.
 
-Examples:
-
 ```
 feat: add init command
 fix: handle missing config file
 docs: describe ICP calculation
 ```
 
-Rules:
+The type is lowercase, followed by a colon and one space. Make one commit per
+remediation batch. Do not add a `Co-Authored-By` trailer.
 
-- The type is lowercase and followed by a colon and a single space.
-- One commit per remediation batch.
-- Do not add a `Co-Authored-By` trailer.
-- If a hook fails, do not `git commit --amend`; fix the issue and create a new commit.
+If the hook rejects your message, do not `git commit --amend`. Fix the message
+and create a new commit.
 
 ## Code style
 
-Follow [Effective Go](https://go.dev/doc/effective_go) for clear, idiomatic Go code.
+Follow [Effective Go](https://go.dev/doc/effective_go).
