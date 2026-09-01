@@ -1,0 +1,55 @@
+// Package cmd wires the cdd command tree.
+package cmd
+
+import (
+	"fmt"
+	"io"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+// defaultConfigPath is where every subcommand looks for the project
+// configuration unless --config says otherwise.
+const defaultConfigPath = "cdd.config.yaml"
+
+// configPath holds the value of the persistent --config flag. Subcommands
+// read it instead of asking cobra for the flag again.
+var configPath = defaultConfigPath
+
+// newRootCmd builds the command tree. A fresh tree per call keeps flag state
+// out of tests and out of any future in-process reuse.
+func newRootCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "cdd",
+		Short: "Cognitive-Driven Development toolkit",
+		Long: `cdd measures code with Cognitive-Driven Development (CDD): every branch,
+condition, coupling or exception block adds Intrinsic Complexity Points (ICPs)
+to a code unit, and a unit above the agreed limit must be refactored before it
+is merged.
+
+The method, the ICP vocabulary and the limit bands are described in
+docs/cdd.md. Run "cdd init" to write a cdd.config.yaml for your project.`,
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	c.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "path to the cdd configuration file")
+	c.Version = versionLine()
+	c.SetVersionTemplate("{{.Version}}\n")
+	c.AddCommand(newVersionCmd(), newInitCmd())
+	return c
+}
+
+// Execute runs the command tree with os.Args. Errors go to stderr and turn
+// into exit code 1; success returns 0.
+func Execute() int {
+	return execute(newRootCmd(), os.Stderr)
+}
+
+func execute(c *cobra.Command, stderr io.Writer) int {
+	if err := c.Execute(); err != nil {
+		fmt.Fprintf(stderr, "cdd: %v\n", err)
+		return 1
+	}
+	return 0
+}
