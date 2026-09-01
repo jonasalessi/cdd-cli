@@ -2,27 +2,28 @@
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-CDD CLI is a tool designed to measure and manage code complexity based on the principles of **Cognitive-Driven Development (CDD)**. It helps developers identify areas of the code that are difficult to understand and maintain by calculating the **Intrinsic Cognitive Point (ICP)**.
+`cdd` measures how much of your code a reader has to hold in their head at
+once. It scores every code unit in Intrinsic Complexity Points (ICPs) and
+flags the ones above the limit your team picked.
 
-> ### 🎓 Foundations in Research
+> The method comes from a 2020 ICSME paper:
 >
-> This tool is a direct implementation of the **Cognitive-Driven Development (CDD)** methodology. It follows the theoretical
-> framework established in the seminal paper:
->
-> Tavares de Souza, A. L. O., Costa Pinto, V. H. S. 2020.  
-> Toward a Definition of Cognitive-Driven Development, 2020 IEEE International Conference on Software Maintenance and
-> Evolution (ICSME), pp. 776–778, https://doi.org/10.1109/ICSME46990.2020.00087
+> Tavares de Souza, A. L. O., Costa Pinto, V. H. S. 2020.
+> Toward a Definition of Cognitive-Driven Development. 2020 IEEE
+> International Conference on Software Maintenance and Evolution (ICSME),
+> pp. 776-778. https://doi.org/10.1109/ICSME46990.2020.00087
 
 ## What CDD measures
 
-Every `if`, `&&`, `catch`, coupling to another type or inheritance level adds
-Intrinsic Complexity Points to a code unit. The team picks which constructs
-count and how much, then sets one limit, usually 10 for a new project. A unit
-above the limit is treated like a compile error and gets refactored before it
-is merged. The full method, including limit bands for greenfield and legacy
-code, is in [docs/cdd.md](docs/cdd.md).
+Every `if`, `&&`, `catch`, coupling to another type and inheritance level adds
+points to the unit that holds it. The team picks which of those count and how
+much, then sets one limit. A unit over the limit fails the way a compile error
+fails, and someone refactors it before it merges.
 
-## Install
+Ten is the usual starting limit for a new project. Legacy code starts higher,
+somewhere between 20 and 40, and comes down as the code improves.
+
+## Installation
 
 ```sh
 go install github.com/jonasalessi/cdd-cli@latest
@@ -37,46 +38,105 @@ make build      # writes bin/cdd with version, commit and date injected
 
 ## Usage
 
-```
-$ cdd --help
-cdd measures code with Cognitive-Driven Development (CDD): every branch,
-condition, coupling or exception block adds Intrinsic Complexity Points (ICPs)
-to a code unit, and a unit above the agreed limit must be refactored before it
-is merged.
+Every command reads `cdd.config.yaml` from the working directory. Pass
+`--config path/to/file.yaml` when it lives somewhere else.
 
-The method, the ICP vocabulary and the limit bands are described in
-docs/cdd.md. Run "cdd init" to write a cdd.config.yaml for your project.
-
-Usage:
-  cdd [command]
-
-Available Commands:
-  completion  Generate the autocompletion script for the specified shell
-  help        Help about any command
-  init        Create a cdd.config.yaml for this project
-  version     Print the cdd version
-
-Flags:
-      --config string   path to the cdd configuration file (default "cdd.config.yaml")
-  -h, --help            help for cdd
-  -v, --version         version for cdd
-
-Use "cdd [command] --help" for more information about a command.
+```sh
+cdd --help      # the command list
+cdd version     # version, commit and build date
 ```
 
-The configuration file this repository uses on itself is
-[cdd.config.yaml](cdd.config.yaml). Every key is commented, and the same text
-is what `cdd init` will write.
+### cdd init
 
-## Status: init in progress
+`init` writes that file, so it is where a project starts. It walks the first
+two steps of CDD, agreeing on which constructs count as ICPs and agreeing on
+the limit.
 
-Round 1 is done: the command tree, the `cdd.config.yaml` schema (types,
-vocabulary, rendering, loading with order-preserving patterns, validation
-rules V1 to V12) and the golden tests. `cdd init` is a stub that already
-accepts its final flag set and exits 1. Round 2 wires the interactive flow and
-language detection. Analyzers come after that.
+With no flags it asks one question at a time.
+
+1. Which languages to configure. `cdd` scans the project first and ticks what
+   it finds, so usually you press enter.
+2. Greenfield or legacy. Greenfield keeps the limit tight from the first
+   commit and defaults to 10, in a band of 7 to 14. Legacy measures what
+   already exists and defaults to 25, in a band of 20 to 40.
+3. For legacy only, how hard to enforce: `strict_all`, `strict_on_new_only`,
+   `boy_scout` or `measure_only`.
+4. The limit itself. Anything outside the band prints a warning and is still
+   accepted, so pick 6 if the team wants 6.
+5. Which metrics to count, three or more per language. `init` hides the ones
+   an analyzer cannot see, which is why Go never offers `exception_handling`
+   or `inheritance`.
+6. Whether to edit the default weights, which package prefixes count as
+   internal, and whether to skip tests and generated code. The defaults suit
+   most projects.
+
+The answers come out as commented YAML. [cdd.config.yaml](cdd.config.yaml) is
+the file this repository uses on itself, and `init` writes the same comments
+into yours.
+
+#### Without the questions
+
+Every answer is also a flag. `--yes` skips the prompts and fills the rest with
+defaults, which is what you want in CI or a setup script.
+
+```sh
+cdd init --yes \
+  --languages go,typescript \
+  --project-type legacy \
+  --legacy-mode strict_on_new_only \
+  --limit 25 \
+  --metrics code_branch,condition,internal_coupling,external_coupling
+```
+
+It prints one line when the file lands:
+
+```
+Created cdd.config.yaml — languages: go, typescript · project: legacy · limit: 25 · metrics: 4
+```
+
+| Flag | What it sets |
+| --- | --- |
+| `--languages` | Languages to configure: `go`, `java`, `kotlin`, `typescript`. |
+| `--project-type` | `greenfield` or `legacy`. |
+| `--legacy-mode` | Enforcement mode, legacy projects only. |
+| `--limit` | ICP limit for every language. `0` takes the default of the project type. |
+| `--metrics` | Metric ids to enable, three or more. |
+| `--weight id=value` | Overrides one weight. Repeat the flag per metric. |
+| `--packages` | Package prefixes that count as internal coupling. |
+| `--no-default-excludes` | Keeps tests and generated code in the analysis. |
+| `--timeout` | Analysis budget written to the file. Default `5m`. |
+| `--scan-timeout` | Budget for detecting languages and packages. Default `4s`. |
+| `--force` | Overwrites an existing configuration file. |
+| `--output` | Writes the file here instead of the path in `--config`. |
+| `--yes` | Skips every prompt. |
+
+#### When the file already exists
+
+`init` never overwrites a `cdd.config.yaml` by accident.
+
+- `--force` overwrites it and says nothing about it.
+- Without `--force`, a run in a terminal asks first. Answer no and it prints
+  `aborted` and exits 0.
+- A run with no prompts, so `--yes` or CI, has nobody to ask. It fails with
+  `cdd.config.yaml exists; pass --force to overwrite` and exits 1.
+
+#### The metric vocabulary
+
+| Metric id | Weight | Languages | Counts |
+| --- | --- | --- | --- |
+| `code_branch` | 1.0 | all | `if`/`else`, `switch`, ternary, loops, and `?.`/`??` in Kotlin and TypeScript |
+| `condition` | 1.0 | all | `&&`, `\|\|` and `??` clauses inside a branch |
+| `exception_handling` | 1.0 | not Go | `try` / `catch` / `finally` blocks |
+| `internal_coupling` | 1.0 | all | References to types that belong to this project |
+| `external_coupling` | 0.5 | all | Framework, platform and third-party types |
+| `inheritance` | 1.0 | not Go | `extends` / `implements`, counted per level |
+| `local_variable` | 0.5 | all | Locals and fields. Off by default |
+| `lambda` | 1.0 | all | Lambdas, method references, func literals. Off by default |
+
+The first six are ticked by default. Weights are per language and per file
+pattern, so a DTO package can count coupling at half the weight of everything
+else without a second file.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the commit format and the git hook
-setup. `make test`, `make lint` and `make cover` are what CI runs.
+See [CONTRIBUTING.md](CONTRIBUTING.md).
