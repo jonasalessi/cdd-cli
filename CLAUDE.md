@@ -18,6 +18,7 @@ until ALL of these pass:
 - `make test`
 - `make lint`
 - `make fmt` (leaves no diff)
+- coverage ≥90%
 
 If any step fails, fix the problem and re-run every step. No exceptions,
 even for "trivial" changes.
