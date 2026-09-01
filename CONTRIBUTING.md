@@ -13,6 +13,15 @@ checked into this repo. The hook rejects any commit whose message does not
 match the format below. Skip the setup and git will happily accept a bad
 message, and the reviewer will ask you to rewrite it.
 
+## What the hooks do
+
+`pre-commit` runs `gofmt` and `golangci-lint run --fix` on the staged Go
+files, re-stages whatever they fixed, and blocks the commit only when an
+issue cannot be fixed automatically. It refuses partially staged Go files,
+since re-staging those would commit hunks you left out on purpose.
+
+`commit-msg` checks the message format below.
+
 ## Commit message format
 
 ```
