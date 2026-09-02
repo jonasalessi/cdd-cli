@@ -11,6 +11,9 @@ const (
 		"| --- | --- | --- | --- | --- | --- |\n"
 	statusOK   = "ok"
 	statusOver = "over limit"
+	// statusNone stands in for the metric list of a unit that scored on no
+	// metric at all.
+	statusNone = "none"
 )
 
 // renderMarkdown writes the report as a GitHub-flavored document: one
@@ -57,21 +60,29 @@ func markdownUnit(p *printer, u Unit) {
 		name, escapeCell(u.Kind), u.Line, u.Col, total, u.Limit, status)
 }
 
-// markdownMetrics writes the per-unit breakdown under the table, so the
-// document carries the same counts and scores as the json and xml reports.
+// markdownMetrics writes the per-unit breakdown under the table: one bullet
+// per unit, naming the metrics that earned its ICPs.
 func markdownMetrics(p *printer, units []Unit) {
 	p.printf("\nMetrics:\n\n")
 	for _, u := range units {
-		parts := make([]string, 0, len(u.Metrics))
-		for _, m := range u.Metrics {
+		p.printf("- `%s` — %s\n", escapeCell(u.Name), countedMetrics(u.Metrics))
+	}
+}
+
+// countedMetrics spells the metrics that actually occurred. A metric that is
+// enabled and never seen adds nothing to the total, so listing it would bury
+// the ones that do under a row of zeros.
+func countedMetrics(ms []Metric) string {
+	parts := make([]string, 0, len(ms))
+	for _, m := range ms {
+		if m.Count > 0 {
 			parts = append(parts, metricText(m))
 		}
-		if len(parts) == 0 {
-			p.printf("- `%s` — no metric enabled\n", escapeCell(u.Name))
-			continue
-		}
-		p.printf("- `%s` — %s\n", escapeCell(u.Name), strings.Join(parts, ", "))
 	}
+	if len(parts) == 0 {
+		return statusNone
+	}
+	return strings.Join(parts, ", ")
 }
 
 // markdownWarnings writes heading followed by one bullet per warning, and
