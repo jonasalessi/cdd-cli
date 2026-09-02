@@ -29,14 +29,15 @@ condition, coupling or exception block adds Intrinsic Complexity Points (ICPs)
 to a code unit, and a unit above the agreed limit must be refactored before it
 is merged.
 
-Run "cdd init" to write a cdd.config.yaml for your project.`,
+Run "cdd init" to write a cdd.config.yaml for your project, then "cdd check"
+to measure it.`,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
 	c.PersistentFlags().StringVar(&configPath, "config", defaultConfigPath, "path to the cdd configuration file")
 	c.Version = versionLine()
 	c.SetVersionTemplate("{{.Version}}\n")
-	c.AddCommand(newVersionCmd(), newInitCmd())
+	c.AddCommand(newVersionCmd(), newInitCmd(), newCheckCmd())
 	return c
 }
 
@@ -59,7 +60,8 @@ func execute(c *cobra.Command, stderr io.Writer) int {
 }
 
 // exitCodeError carries a specific exit code out of a RunE without printing
-// anything; init uses it for the ctrl-c convention, code 130.
+// anything: init uses it for the ctrl-c convention, code 130, and check for
+// its violation and timeout codes, both of which report themselves first.
 type exitCodeError struct{ code int }
 
 func (e exitCodeError) Error() string {
