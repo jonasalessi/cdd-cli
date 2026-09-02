@@ -56,6 +56,36 @@ func TestConditionClauses(t *testing.T) {
 	}
 }
 
+// TestOptionalChains pins one branch per `?.`, whichever of the two shapes
+// the grammar uses: the named optional_chain node of a member or subscript
+// access, or the anonymous `?.` token of an optional call.
+func TestOptionalChains(t *testing.T) {
+	cases := []struct {
+		expr string
+		want int
+	}{
+		{"a.b", 0},
+		{"a.b()", 0},
+		{"a?.b", 1},
+		{"a?.[0]", 1},
+		{"a?.b()", 1},
+		{"a?.()", 1},
+		{"a.b?.()", 1},
+		{"a?.b?.()", 2},
+		{"a?.[0]?.()", 2},
+		{"a?.b?.(1)?.[2]", 3},
+	}
+	for _, c := range cases {
+		t.Run(c.expr, func(t *testing.T) {
+			an := newTestAnalyzer(t)
+			res, err := an.Analyze(context.Background(), "probe.ts", probe(c.expr))
+			require.NoError(t, err)
+			require.Len(t, res.Units, 1)
+			requireCount(t, res.Units[0], config.MetricCodeBranch, c.want)
+		})
+	}
+}
+
 // TestLoopBindings pins the `for…of` / `for…in` rule on its own: the loop
 // declares one local when it carries a `kind` keyword, whatever shape the
 // binding has, and none when it assigns to an existing variable.
@@ -99,7 +129,7 @@ func TestMetrics(t *testing.T) {
 		want    int
 	}{
 		{"branches", "branches.ts", "branches", config.MetricCodeBranch, 14},
-		{"optional calls", "branches.ts", "optionalCalls", config.MetricCodeBranch, 4},
+		{"optional calls", "branches.ts", "optionalCalls", config.MetricCodeBranch, 9},
 		{"conditions", "conditions.ts", "conditions", config.MetricCondition, 32},
 		{"conditions branch only once", "conditions.ts", "conditions", config.MetricCodeBranch, 9},
 		{"exceptions", "exceptions.ts", "exceptions", config.MetricExceptionHandling, 5},

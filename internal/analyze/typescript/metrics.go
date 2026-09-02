@@ -77,12 +77,12 @@ func (c *counter) visit(n *ts.Node) bool {
 // countControlFlow charges the branch, condition and exception metrics,
 // reporting whether k was one of theirs.
 //
-// Every optional_chain node is charged, whatever its parent, so each `?.`
-// the grammar gives a node to is one branch. The grammar gives one to a
-// member access (`a?.b`) and to a subscript access (`a?.[0]`) only: the
-// `?.` of an optional call is an anonymous token of call_expression, whose
-// rule is seq(field("function", …), "?.", field("arguments", …)), so
-// `a?.()` produces no node and adds nothing.
+// Every `?.` is one branch, because every `?.` short-circuits. The grammar
+// spells it two different ways: a member access (`a?.b`) and a subscript
+// access (`a?.[0]`) carry a named optional_chain node, charged wherever it
+// appears; an optional call (`a?.()`) carries the bare anonymous token
+// instead, charged by countOptionalCall. The two never overlap, so
+// `o?.b?.(1)?.[2]` is 3: the `?.b`, the `?.(` and the `?.[2]`.
 func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	switch k {
 	case kindIfStatement, kindSwitchCase, kindTernaryExpression, kindForStatement,
@@ -91,6 +91,8 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	case kindForInStatement:
 		c.counts[config.MetricCodeBranch]++
 		c.countLoopBinding(n)
+	case kindCallExpression:
+		c.countOptionalCall(n)
 	case kindElseClause:
 		c.countElse(n)
 	case kindTryStatement, kindCatchClause, kindFinallyClause:
@@ -133,6 +135,20 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 		}
 	case kindIdentifier, kindTypeIdentifier, kindShorthandPropertyIdentifier:
 		c.refs[n.Utf8Text(c.src)] = struct{}{}
+	}
+}
+
+// countOptionalCall charges the `?.` of an optional call. The grammar gives
+// it no node of its own -- call_expression holds the bare anonymous `?.`
+// token between the function and the arguments -- so the token is found by
+// symbol id among the direct children rather than by kind or by field.
+// A call has at most one, so the scan stops at the first.
+func (c *counter) countOptionalCall(n *ts.Node) {
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if child := n.Child(i); child != nil && child.KindId() == c.g.optionalCallToken {
+			c.counts[config.MetricCodeBranch]++
+			return
+		}
 	}
 }
 
