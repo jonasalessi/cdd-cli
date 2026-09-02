@@ -53,19 +53,18 @@ export function branches(v: number, o: { a?: { b: number } }): number {
   return t + Number(shallow) + Number(deep);
 }
 
-// Expected total for `optionalCalls`: 4.
+// Expected total for `optionalCalls`: 9.
 //
-// The grammar gives `?.` an `optional_chain` node in a member access
-// (`a?.b`) and in a subscript access (`a?.[0]`) only. In an optional call
-// the `?.` is an anonymous token of `call_expression`, whose rule is
-// seq(field("function", …), "?.", field("arguments", …)), so it produces no
-// node at all and adds nothing. Every `optional_chain` node is charged
-// whatever its parent; there is simply none to charge for the call itself.
+// Every `?.` short-circuits, so every `?.` is one branch. The grammar
+// spells it two ways: a member access (`a?.b`) and a subscript access
+// (`a?.[0]`) carry a named `optional_chain` node, while an optional call
+// (`a?.()`) carries the bare anonymous `?.` token of `call_expression`.
+// Both are counted, and they never overlap.
 export function optionalCalls(f: any, o: any): unknown {
-  const a = f?.(); // +0  optional call, no node in the grammar
-  const b = o.f?.(); // +0  plain member access, then an optional call
-  const c = o?.f?.(); // +1  the `?.f` member access only
-  const d = o?.[0]?.(); // +1  the `?.[0]` subscript access only
-  const e = o?.b?.(1)?.[2]; // +2  `?.b` and `?.[2]`, not the `?.(`
+  const a = f?.(); // +1  the optional call
+  const b = o.f?.(); // +1  plain member access, then the optional call
+  const c = o?.f?.(); // +2  the `?.f` access and the optional call
+  const d = o?.[0]?.(); // +2  the `?.[0]` subscript and the optional call
+  const e = o?.b?.(1)?.[2]; // +3  `?.b`, the `?.(` call and `?.[2]`
   return [a, b, c, d, e];
 }
