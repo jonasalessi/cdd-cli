@@ -27,6 +27,7 @@ func run(t *testing.T, args ...string) (string, string, int) {
 func TestHelpListsSubcommands(t *testing.T) {
 	out, _, code := run(t, "--help")
 	assert.Equal(t, 0, code)
+	assert.Contains(t, out, "check ")
 	assert.Contains(t, out, "init ")
 	assert.Contains(t, out, "version ")
 	assert.Contains(t, out, `Run "cdd init"`)
