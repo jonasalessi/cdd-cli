@@ -1,8 +1,12 @@
 package typescript
 
 import (
+	"cmp"
+	"slices"
+
 	ts "github.com/tree-sitter/go-tree-sitter"
 
+	"github.com/jonasalessi/cdd-cli/internal/analyze"
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
@@ -20,10 +24,18 @@ const (
 // counter accumulates the raw ICP counts of one unit while its subtree is
 // walked. It counts every metric, enabled or not: the pipeline drops the
 // ones the configuration disables.
+//
+// Every count is charged through charge or chargeSpan, which record where
+// it came from, so a unit's Counts is always the sum of its Occurrences'
+// Count, metric by metric.
 type counter struct {
 	g      *grammar
 	src    []byte
 	counts map[config.MetricID]int
+	// occurrences locate every charge, in the order it was made. The walk
+	// is a pre-order traversal, so they come out in source order except for
+	// the coupling charges, which are added last; measure sorts them.
+	occurrences []analyze.Occurrence
 	// consumed holds the logical binary expressions already folded into an
 	// enclosing clause chain, so a nested `&&` is never counted twice.
 	consumed map[uintptr]bool
@@ -64,6 +76,44 @@ func zeroCounts() map[config.MetricID]int {
 	return counts
 }
 
+// charge adds count points of metric to the unit and records n's range as
+// where they come from.
+func (c *counter) charge(metric config.MetricID, n *ts.Node, count int) {
+	c.chargeSpan(metric, spanOf(n), count)
+}
+
+// chargeSpan is charge for a range that is not a node the caller still
+// holds, which is how a coupling charge points at an import statement far
+// above the unit.
+func (c *counter) chargeSpan(metric config.MetricID, s srcSpan, count int) {
+	c.counts[metric] += count
+	c.occurrences = append(c.occurrences, analyze.Occurrence{
+		Metric:  metric,
+		Line:    s.line,
+		Col:     s.col,
+		EndLine: s.endLine,
+		EndCol:  s.endCol,
+		Count:   count,
+	})
+}
+
+// sortedOccurrences returns the unit's occurrences in source order. The walk
+// yields the constructs inside the unit in that order already, but a leaf
+// clause is charged before the constructs of an earlier sibling it was
+// flattened out of, and the coupling charges point at import statements
+// above the unit, so the whole slice is ordered by position. The sort is
+// stable, so two constructs starting at the same place keep the order the
+// walk gave them: the `if` before the clauses of its own condition.
+func (c *counter) sortedOccurrences() []analyze.Occurrence {
+	slices.SortStableFunc(c.occurrences, func(a, b analyze.Occurrence) int {
+		if a.Line != b.Line {
+			return cmp.Compare(a.Line, b.Line)
+		}
+		return cmp.Compare(a.Col, b.Col)
+	})
+	return c.occurrences
+}
+
 // visit is the walk callback; it always descends, because a unit owns every
 // construct nested inside it, methods and callbacks included.
 func (c *counter) visit(n *ts.Node) bool {
@@ -87,16 +137,18 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	switch k {
 	case kindIfStatement, kindSwitchCase, kindTernaryExpression, kindForStatement,
 		kindWhileStatement, kindDoStatement, kindOptionalChain:
-		c.counts[config.MetricCodeBranch]++
+		c.charge(config.MetricCodeBranch, n, 1)
 	case kindForInStatement:
-		c.counts[config.MetricCodeBranch]++
+		c.charge(config.MetricCodeBranch, n, 1)
 		c.countLoopBinding(n)
 	case kindCallExpression:
 		c.countOptionalCall(n)
 	case kindElseClause:
 		c.countElse(n)
-	case kindTryStatement, kindCatchClause, kindFinallyClause:
-		c.counts[config.MetricExceptionHandling]++
+	case kindTryStatement:
+		c.countTryBody(n)
+	case kindCatchClause, kindFinallyClause:
+		c.charge(config.MetricExceptionHandling, n, 1)
 	case kindBinaryExpression, kindAugmentedAssignmentExpression:
 		c.countCondition(k, n)
 	default:
@@ -118,24 +170,47 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 func (c *counter) countDeclaration(k kind, n *ts.Node) {
 	switch k {
 	case kindExtendsClause:
-		c.counts[config.MetricInheritance] += namedChildrenInField(n, fieldValue)
+		c.chargeParents(n, fieldValue)
 	case kindExtendsTypeClause:
-		c.counts[config.MetricInheritance] += namedChildrenInField(n, fieldType)
+		c.chargeParents(n, fieldType)
 	case kindImplementsClause:
-		c.counts[config.MetricInheritance] += int(n.NamedChildCount())
+		c.chargeParents(n, "")
 	case kindVariableDeclarator:
 		if n.Id() != c.skipDeclarator {
-			c.counts[config.MetricLocalVariable]++
+			c.charge(config.MetricLocalVariable, n, 1)
 		}
 	case kindPublicFieldDefinition:
-		c.counts[config.MetricLocalVariable]++
+		c.charge(config.MetricLocalVariable, n, 1)
 	case kindArrowFunction, kindFunctionExpression:
 		if n.Id() != c.skipLambda {
-			c.counts[config.MetricLambda]++
+			c.charge(config.MetricLambda, n, 1)
 		}
 	case kindIdentifier, kindTypeIdentifier, kindShorthandPropertyIdentifier:
 		c.refs[n.Utf8Text(c.src)] = struct{}{}
 	}
+}
+
+// chargeParents charges one inheritance ICP per parent a heritage clause
+// lists, on the parent's own type node rather than on the clause, so
+// `implements A, B` is two occurrences a reader can tell apart. field
+// selects the children that are parents rather than type arguments:
+// `extends Base<T>` holds Base in the clause's field and T outside it. An
+// empty field takes every named child, which is what `implements` holds.
+func (c *counter) chargeParents(n *ts.Node, field string) {
+	for _, parent := range namedChildrenInField(n, field) {
+		c.charge(config.MetricInheritance, &parent, 1)
+	}
+}
+
+// countTryBody charges the block a `try` guards. The occurrence sits on the
+// statement_block rather than on the whole try_statement, whose range would
+// cover the catch and finally clauses charged beside it.
+func (c *counter) countTryBody(n *ts.Node) {
+	body := n.ChildByFieldId(c.g.fields.body)
+	if body == nil {
+		body = n
+	}
+	c.charge(config.MetricExceptionHandling, body, 1)
 }
 
 // countOptionalCall charges the `?.` of an optional call. The grammar gives
@@ -146,7 +221,7 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 func (c *counter) countOptionalCall(n *ts.Node) {
 	for i := uint(0); i < n.ChildCount(); i++ {
 		if child := n.Child(i); child != nil && child.KindId() == c.g.optionalCallToken {
-			c.counts[config.MetricCodeBranch]++
+			c.charge(config.MetricCodeBranch, child, 1)
 			return
 		}
 	}
@@ -159,11 +234,18 @@ func (c *counter) countOptionalCall(n *ts.Node) {
 // and the `let`, `const` or `var` keyword off the optional `kind` field.
 // A loop with no `kind`, `for (x of xs)`, assigns to an existing variable
 // and declares nothing. The charge is one per statement even when `left` is
-// a destructuring pattern, which is how `const {a, b} = x` is counted too.
+// a destructuring pattern, which is how `const {a, b} = x` is counted too,
+// and it points at that binding, the closest the grammar has to the
+// declarator the loop never gets.
 func (c *counter) countLoopBinding(n *ts.Node) {
-	if n.ChildByFieldId(c.g.fields.kind) != nil {
-		c.counts[config.MetricLocalVariable]++
+	if n.ChildByFieldId(c.g.fields.kind) == nil {
+		return
 	}
+	binding := n.ChildByFieldId(c.g.fields.left)
+	if binding == nil {
+		binding = n
+	}
+	c.charge(config.MetricLocalVariable, binding, 1)
 }
 
 // countElse charges an `else`, unless it is the `else` of an `else if`:
@@ -172,7 +254,7 @@ func (c *counter) countElse(n *ts.Node) {
 	if body := firstNamedChild(n); body != nil && c.g.kindOf(body) == kindIfStatement {
 		return
 	}
-	c.counts[config.MetricCodeBranch]++
+	c.charge(config.MetricCodeBranch, n, 1)
 }
 
 // countCondition charges one ICP per Boolean clause, which is the rule
@@ -191,45 +273,56 @@ func (c *counter) countCondition(k kind, n *ts.Node) {
 	if !c.isLogical(n) {
 		return
 	}
-	c.counts[config.MetricCondition] += c.clauses(n)
+	for _, clause := range c.clauses(n, nil) {
+		c.charge(config.MetricCondition, &clause, 1)
+	}
 }
 
 // countLogicalAssign charges `a &&= b`, `a ||= b` and `a ??= b`, which are
 // sugar for `a = a && b`: the left-hand side is one clause and the
 // right-hand side contributes its own.
+//
+// The whole assignment carries a single occurrence whose Count is that sum,
+// rather than one occurrence per clause, because the clause the left-hand
+// side stands for is not written anywhere: `y ||= b` reads `y` once, and
+// only the operator says it is also a condition. So `y ||= b` is one
+// construct worth 2, which is the clause pair analyze.Occurrence describes.
 func (c *counter) countLogicalAssign(n *ts.Node) {
 	switch text(n.ChildByFieldId(c.g.fields.operator), c.src) {
 	case opAndAssign, opOrAssign, opNullishAssign:
-		c.counts[config.MetricCondition] += 1 + c.clauses(n.ChildByFieldId(c.g.fields.right))
+		right := c.clauses(n.ChildByFieldId(c.g.fields.right), nil)
+		c.charge(config.MetricCondition, n, 1+len(right))
 	}
 }
 
-// clauses returns the number of Boolean clauses of the expression rooted at
-// n, flattening the chain through nested logical operators, parentheses and
-// `!`. Flattening through `!` follows De Morgan: `!(a || b) && x` is
+// clauses appends the Boolean clauses of the expression rooted at n to out
+// and returns it. The clauses of a chain are its leaf operands: the walk
+// flattens through nested logical operators, parentheses and `!`, so the
+// node that lands in out is the operand itself, `a` rather than `!a`.
+// Flattening through `!` follows De Morgan: `!(a || b) && x` is
 // `!a && !b && x`, three clauses, not four. Every logical node it folds in
 // is marked consumed so the walk does not count it again.
-func (c *counter) clauses(n *ts.Node) int {
+func (c *counter) clauses(n *ts.Node, out []ts.Node) []ts.Node {
 	if n == nil {
-		return 0
+		return out
 	}
 	switch c.g.kindOf(n) {
 	case kindParenthesizedExpression:
 		if inner := firstNamedChild(n); inner != nil {
-			return c.clauses(inner)
+			return c.clauses(inner, out)
 		}
 	case kindUnaryExpression:
 		if text(n.ChildByFieldId(c.g.fields.operator), c.src) == opNot {
-			return c.clauses(n.ChildByFieldId(c.g.fields.argument))
+			return c.clauses(n.ChildByFieldId(c.g.fields.argument), out)
 		}
 	case kindBinaryExpression:
 		if c.isLogical(n) {
 			c.consumed[n.Id()] = true
-			return c.clauses(n.ChildByFieldId(c.g.fields.left)) +
-				c.clauses(n.ChildByFieldId(c.g.fields.right))
+			out = c.clauses(n.ChildByFieldId(c.g.fields.left), out)
+			return c.clauses(n.ChildByFieldId(c.g.fields.right), out)
 		}
 	}
-	return 1
+	return append(out, *n)
 }
 
 // isLogical reports whether n is a binary expression whose operator joins

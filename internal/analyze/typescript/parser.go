@@ -140,6 +140,10 @@ const (
 	fieldDeclaration = "declaration"
 	fieldSource      = "source"
 	fieldType        = "type"
+	// fieldBody holds the statement_block a `try` guards, which is where an
+	// exception-handling occurrence points: the try_statement's own range
+	// would swallow the catch and finally clauses charged beside it.
+	fieldBody = "body"
 	// fieldKind holds the `let`, `const` or `var` token of a `for…in` or
 	// `for…of` loop. The token is anonymous, so it never shows up in an
 	// s-expression, but the field is there and reaches it.
@@ -158,6 +162,7 @@ type fields struct {
 	operator, left, right, argument uint16
 	name, alias, value              uint16
 	declaration, source, kind       uint16
+	body                            uint16
 }
 
 // grammar is one parse table plus the symbol and field ids resolved from it.
@@ -189,6 +194,7 @@ func newGrammar(lang *ts.Language) *grammar {
 		declaration: lang.FieldIdForName(fieldDeclaration),
 		source:      lang.FieldIdForName(fieldSource),
 		kind:        lang.FieldIdForName(fieldKind),
+		body:        lang.FieldIdForName(fieldBody),
 	}
 	g.optionalCallToken = lang.IdForNodeKind(tokenOptionalCall, false)
 	return g

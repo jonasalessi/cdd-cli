@@ -20,6 +20,11 @@ type module struct {
 	// sideEffect marks `import "x"`, which introduces no binding and is
 	// therefore charged to every unit of the file.
 	sideEffect bool
+	// at is the range of the first import statement naming the specifier,
+	// which is where the module's coupling occurrence points. That
+	// statement sits outside every unit it is charged to, as the contract
+	// on analyze.Occurrence says.
+	at srcSpan
 }
 
 // modules returns the modules imported by the file, in source order (FR-6).
@@ -46,7 +51,11 @@ func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module 
 		if !ok {
 			at = len(out)
 			index[spec] = at
-			out = append(out, module{specifier: spec, internal: isInternal(spec, prefixes)})
+			out = append(out, module{
+				specifier: spec,
+				internal:  isInternal(spec, prefixes),
+				at:        spanOf(&n),
+			})
 		}
 		bindings, sideEffect := importBindings(g, &n, src)
 		out[at].bindings = append(out[at].bindings, bindings...)
@@ -185,6 +194,10 @@ func isRelative(spec string) bool {
 // side-effect import binds nothing and is charged to every unit of the
 // file.
 //
+// The charge points at the import statement that brings the module in,
+// which is above the unit rather than inside it: it is the one place the
+// dependency is written down.
+//
 // The reference test is by name only: a local declaration that shadows an
 // imported name makes the unit look like a user of that module.
 func (c *counter) countCoupling(mods []module) {
@@ -194,10 +207,10 @@ func (c *counter) countCoupling(mods []module) {
 			continue
 		}
 		if m.internal {
-			c.counts[config.MetricInternalCoupling]++
+			c.chargeSpan(config.MetricInternalCoupling, m.at, 1)
 			continue
 		}
-		c.counts[config.MetricExternalCoupling]++
+		c.chargeSpan(config.MetricExternalCoupling, m.at, 1)
 	}
 }
 

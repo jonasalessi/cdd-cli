@@ -46,17 +46,20 @@ func namedChildren(n *ts.Node) []ts.Node {
 	return out
 }
 
-// namedChildrenInField counts n's named children that sit in the given
+// namedChildrenInField returns n's named children that sit in the given
 // field, which separates `extends Base<T>`'s one parent from its type
-// arguments.
-func namedChildrenInField(n *ts.Node, field string) int {
-	count := 0
-	for i := uint(0); i < n.NamedChildCount(); i++ {
-		if n.FieldNameForNamedChild(uint32(i)) == field {
-			count++
+// arguments. An empty field takes every named child.
+func namedChildrenInField(n *ts.Node, field string) []ts.Node {
+	count := n.NamedChildCount()
+	out := make([]ts.Node, 0, count)
+	for i := range count {
+		c := n.NamedChild(i)
+		if c == nil || (field != "" && n.FieldNameForNamedChild(uint32(i)) != field) {
+			continue
 		}
+		out = append(out, *c)
 	}
-	return count
+	return out
 }
 
 // firstNamedChild returns n's first named child, nil when it has none.
@@ -75,10 +78,30 @@ func text(n *ts.Node, src []byte) string {
 	return n.Utf8Text(src)
 }
 
+// srcSpan is one source range the way analyze.Occurrence carries it: 1-based
+// line and column of the first character, and the line and column just past
+// the last.
+type srcSpan struct {
+	line, col       int
+	endLine, endCol int
+}
+
+// spanOf returns n's range. Tree-sitter rows and columns are 0-based and its
+// end position is already exclusive, so only the origin has to move.
+func spanOf(n *ts.Node) srcSpan {
+	start, end := n.StartPosition(), n.EndPosition()
+	return srcSpan{
+		line:    int(start.Row) + 1,
+		col:     int(start.Column) + 1,
+		endLine: int(end.Row) + 1,
+		endCol:  int(end.Column) + 1,
+	}
+}
+
 // position returns n's 1-based line and column.
 func position(n *ts.Node) (line, col int) {
-	p := n.StartPosition()
-	return int(p.Row) + 1, int(p.Column) + 1
+	s := spanOf(n)
+	return s.line, s.col
 }
 
 // firstErrorNode returns the first ERROR or MISSING node in n's subtree in
