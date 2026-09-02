@@ -40,12 +40,7 @@ $(GOLANGCI_LINT):
 fmt:
 	gofmt -l -w .
 
-## check-literals: metric, language and mode ids may only be spelled out in vocabulary.go
+## check-literals: vocabulary ids (languages, metrics, modes, formats) may only be spelled out in
+## vocabulary.go and the language spec files, and language tables only in the language dirs
 check-literals:
-	@hits=$$(grep -rnE '"(go|java|kotlin|typescript|code_branch|condition|exception_handling|internal_coupling|external_coupling|inheritance|local_variable|lambda|greenfield|legacy|strict_all|strict_on_new_only|boy_scout|measure_only)"' \
-		--include='*.go' --exclude='*_test.go' --exclude='vocabulary.go' . | grep -v 'yaml:"' || true); \
-	if [ -n "$$hits" ]; then \
-		echo "vocabulary literals found outside internal/config/vocabulary.go:"; \
-		echo "$$hits"; \
-		exit 1; \
-	fi
+	go test ./internal/languages -count=1 -run '^TestLiterals$$'

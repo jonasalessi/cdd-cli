@@ -38,23 +38,23 @@ type Answers struct {
 	// PackagesByLanguage is the per-language prefix list made by the
 	// interview or detection; Build merges it with Packages.
 	PackagesByLanguage map[config.Language][]string
-	// DefaultExcludes adds config.DefaultExcludes per language when true.
+	// DefaultExcludes adds each language's spec DefaultExcludes when true.
 	DefaultExcludes bool
 	// Timeout is the analysis budget; 0 means config.DefaultTimeout().
 	Timeout time.Duration
 }
 
-// SeedMetrics returns the metric ids the interview pre-checks for lang: the
+// SeedMetrics returns the metric ids the interview pre-checks for spec: the
 // global Metrics list when given, otherwise config.DefaultSelection(),
 // filtered to what the language's analyzer can count, order preserved.
-func SeedMetrics(a Answers, lang config.Language) []config.MetricID {
+func SeedMetrics(a Answers, spec config.LanguageSpec) []config.MetricID {
 	seed := a.Metrics
 	if len(seed) == 0 {
 		seed = config.DefaultSelection()
 	}
 	var out []config.MetricID
 	for _, id := range seed {
-		if config.IsApplicable(lang, id) {
+		if spec.IsApplicable(id) {
 			out = append(out, id)
 		}
 	}

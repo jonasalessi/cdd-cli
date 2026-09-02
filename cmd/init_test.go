@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"flag"
 	"os"
 	"path/filepath"
 	"testing"
@@ -13,7 +14,23 @@ import (
 
 	"github.com/jonasalessi/cdd-cli/internal/config"
 	"github.com/jonasalessi/cdd-cli/internal/initcmd"
+	"github.com/jonasalessi/cdd-cli/internal/languages"
 )
+
+// update rewrites the dogfood cdd.config.yaml from the command output.
+var update = flag.Bool("update", false, "rewrite cdd.config.yaml")
+
+// The e2e tests drive the real registry through --languages, so they name
+// real ids.
+const (
+	langGo   config.Language = "go"
+	langJava config.Language = "java"
+)
+
+// specs is the real registry, as cmd wires it.
+func specs() []config.LanguageSpec {
+	return languages.Specs()
+}
 
 // runCdd executes the command tree inside dir, keeping stdout and stderr
 // apart so a test can tell a warning from the receipt. Every case passes
@@ -54,9 +71,37 @@ func loadConfig(t *testing.T, dir string) *config.Config {
 	t.Helper()
 	cfg, err := config.Load(filepath.Join(dir, "cdd.config.yaml"))
 	require.NoError(t, err)
-	issues := config.Validate(cfg)
+	issues := config.Validate(cfg, specs())
 	require.False(t, issues.HasErrors(), "issues: %v", issues)
 	return cfg
+}
+
+// TestInitDogfoodConfigReproducible mirrors the CI gate: the file this
+// repository uses on itself is exactly what init writes for it.
+func TestInitDogfoodConfigReproducible(t *testing.T) {
+	// Resolve the path before runCdd, which leaves the package directory.
+	path, err := filepath.Abs(filepath.Join("..", "cdd.config.yaml"))
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	_, stderr, code := runCdd(t, dir, "init", "--yes",
+		"--languages", "go",
+		"--packages", "github.com/jonasalessi/cdd-cli",
+	)
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	got, err := os.ReadFile(filepath.Join(dir, "cdd.config.yaml"))
+	require.NoError(t, err)
+	if *update {
+		require.NoError(t, os.WriteFile(path, got, 0o644))
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, string(want), string(got),
+		"cdd.config.yaml drifted from cdd init; run go test ./cmd -update")
+
+	cfg, err := config.Load(path)
+	require.NoError(t, err)
+	require.Empty(t, config.Validate(cfg, specs()), "the dogfood file must validate without warnings")
 }
 
 func TestInitYesDetectsGoProject(t *testing.T) {
@@ -70,7 +115,7 @@ func TestInitYesDetectsGoProject(t *testing.T) {
 
 	cfg := loadConfig(t, dir)
 	require.Len(t, cfg.Metrics, 1)
-	assert.Contains(t, cfg.Metrics, config.LangGo)
+	assert.Contains(t, cfg.Metrics, langGo)
 	assert.Equal(t, []string{"example.com/fixture"}, cfg.InternalCoupling.Packages)
 	assert.Equal(t, config.ProjectGreenfield, cfg.ProjectType)
 }
@@ -105,9 +150,9 @@ func TestInitMetricsFlagFilteredPerLanguage(t *testing.T) {
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 
 	cfg := loadConfig(t, dir)
-	assert.Len(t, cfg.Metrics[config.LangGo][0].Weights, 3, "inheritance does not apply to go")
-	assert.Len(t, cfg.Metrics[config.LangJava][0].Weights, 4)
-	assert.Contains(t, cfg.Metrics[config.LangJava][0].Weights, config.MetricInheritance)
+	assert.Len(t, cfg.Metrics[langGo][0].Weights, 3, "inheritance does not apply to go")
+	assert.Len(t, cfg.Metrics[langJava][0].Weights, 4)
+	assert.Contains(t, cfg.Metrics[langJava][0].Weights, config.MetricInheritance)
 }
 
 func TestInitMeasureOnlyDisablesCI(t *testing.T) {
@@ -235,7 +280,7 @@ func TestInitScanTimeoutTruncation(t *testing.T) {
 		require.Equal(t, 0, code, "stderr: %s", stderr)
 		assert.Contains(t, stderr, "scan stopped")
 		cfg := loadConfig(t, dir)
-		assert.Contains(t, cfg.Metrics, config.LangGo)
+		assert.Contains(t, cfg.Metrics, langGo)
 	})
 	t.Run("without --languages nothing is detected in time", func(t *testing.T) {
 		dir := t.TempDir()
@@ -251,7 +296,7 @@ func TestInitScanTimeoutTruncation(t *testing.T) {
 		_, stderr, code := runCdd(t, dir, "init", "--yes", "--scan-timeout", "0")
 		require.Equal(t, 0, code, "stderr: %s", stderr)
 		assert.Empty(t, stderr)
-		assert.Contains(t, loadConfig(t, dir).Metrics, config.LangGo)
+		assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
 	})
 }
 
@@ -293,12 +338,12 @@ func TestGatherDefaults(t *testing.T) {
 		dir := t.TempDir()
 		writeGoFixture(t, dir)
 		t.Chdir(dir)
-		a, det, err := gatherDefaults(&initOptions{scanTimeout: 4 * time.Second})
+		a, det, err := gatherDefaults(&initOptions{scanTimeout: 4 * time.Second}, specs())
 		require.NoError(t, err)
 		assert.False(t, det.Truncated)
-		assert.Equal(t, []config.Language{config.LangGo}, a.Languages)
+		assert.Equal(t, []config.Language{langGo}, a.Languages)
 		assert.Equal(t, []string{"example.com/fixture"},
-			a.PackagesByLanguage[config.LangGo])
+			a.PackagesByLanguage[langGo])
 	})
 	t.Run("flags win over detection", func(t *testing.T) {
 		dir := t.TempDir()
@@ -309,9 +354,9 @@ func TestGatherDefaults(t *testing.T) {
 			metrics:   []string{"code_branch", " condition "},
 			packages:  []string{"com.acme"},
 			weights:   []string{"code_branch = 2"},
-		})
+		}, specs())
 		require.NoError(t, err)
-		assert.Equal(t, []config.Language{config.LangJava}, a.Languages)
+		assert.Equal(t, []config.Language{langJava}, a.Languages)
 		assert.Equal(t, []config.MetricID{config.MetricCodeBranch, config.MetricCondition}, a.Metrics)
 		assert.Equal(t, []string{"com.acme"}, a.Packages)
 		assert.Nil(t, a.PackagesByLanguage, "an explicit --packages skips package detection")
@@ -319,14 +364,14 @@ func TestGatherDefaults(t *testing.T) {
 	})
 	t.Run("a bad weight flag stops before detection", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		_, _, err := gatherDefaults(&initOptions{weights: []string{"oops"}})
+		_, _, err := gatherDefaults(&initOptions{weights: []string{"oops"}}, specs())
 		assert.ErrorContains(t, err, "expected id=value")
 	})
 }
 
 func TestWriteConfig(t *testing.T) {
 	answers := func() initcmd.Answers {
-		return initcmd.Answers{Languages: []config.Language{config.LangGo}, DefaultExcludes: true}
+		return initcmd.Answers{Languages: []config.Language{langGo}, DefaultExcludes: true}
 	}
 	t.Run("a build error never touches the file", func(t *testing.T) {
 		dir := t.TempDir()
@@ -334,7 +379,7 @@ func TestWriteConfig(t *testing.T) {
 		a := answers()
 		a.Limit = -1
 		c, _, _ := silentCmd()
-		assert.ErrorContains(t, writeConfig(c, a, path, false), "at least 1")
+		assert.ErrorContains(t, writeConfig(c, a, specs(), path, false), "at least 1")
 		assert.NoFileExists(t, path)
 	})
 	t.Run("warnings go to stderr and the receipt to stdout", func(t *testing.T) {
@@ -343,7 +388,7 @@ func TestWriteConfig(t *testing.T) {
 		a := answers()
 		a.Limit = 50
 		c, stdout, stderr := silentCmd()
-		require.NoError(t, writeConfig(c, a, path, false))
+		require.NoError(t, writeConfig(c, a, specs(), path, false))
 		assert.Contains(t, stderr.String(), "warning: limit 50 is outside")
 		assert.Contains(t, stdout.String(), "Created "+path)
 	})
@@ -352,23 +397,23 @@ func TestWriteConfig(t *testing.T) {
 		path := filepath.Join(dir, "cdd.config.yaml")
 		require.NoError(t, os.WriteFile(path, nil, 0o644))
 		c, _, _ := silentCmd()
-		assert.ErrorContains(t, writeConfig(c, answers(), path, false), "--force")
+		assert.ErrorContains(t, writeConfig(c, answers(), specs(), path, false), "--force")
 	})
 	t.Run("a write failure is passed through", func(t *testing.T) {
 		c, _, _ := silentCmd()
 		path := filepath.Join(t.TempDir(), "missing", "cdd.config.yaml")
-		assert.Error(t, writeConfig(c, answers(), path, false))
+		assert.Error(t, writeConfig(c, answers(), specs(), path, false))
 	})
 }
 
 func TestSummary(t *testing.T) {
 	cfg, _, err := initcmd.Build(initcmd.Answers{
-		Languages: []config.Language{config.LangGo, config.LangJava},
-	})
+		Languages: []config.Language{langGo, langJava},
+	}, specs())
 	require.NoError(t, err)
 	assert.Equal(t,
 		"Created cdd.config.yaml — languages: go, java · project: greenfield · limit: 10 · metrics: 6",
-		summary("cdd.config.yaml", cfg),
+		summary("cdd.config.yaml", cfg, specs()),
 		"the metric count is the union across languages")
 }
 
@@ -388,6 +433,6 @@ func TestParseWeightFlags(t *testing.T) {
 func TestToLanguagesAndMetrics(t *testing.T) {
 	assert.Nil(t, toLanguages(nil))
 	assert.Nil(t, toMetrics([]string{"", "  "}))
-	assert.Equal(t, []config.Language{config.LangGo}, toLanguages([]string{" go ", " "}))
+	assert.Equal(t, []config.Language{langGo}, toLanguages([]string{" go ", " "}))
 	assert.Equal(t, []config.MetricID{config.MetricLambda}, toMetrics([]string{"", " lambda "}))
 }

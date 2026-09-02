@@ -21,21 +21,22 @@ func (e ErrTooFewMetrics) Error() string {
 	return fmt.Sprintf("%s is left with %d applicable metrics, at least %d are required", e.Language, e.Have, e.Need)
 }
 
-// Build turns a into a complete configuration. The second return value
-// carries non-blocking findings, e.g. a limit outside the recommended band.
-// The result always passes config.Validate with zero errors; anything else
-// is a bug and comes back as an internal error.
-func Build(a Answers) (*config.Config, []string, error) {
-	a, warnings, err := normalize(a)
+// Build turns a into a complete configuration for the languages in specs.
+// The second return value carries non-blocking findings, e.g. a limit
+// outside the recommended band. The result always passes config.Validate
+// with zero errors; anything else is a bug and comes back as an internal
+// error.
+func Build(a Answers, specs []config.LanguageSpec) (*config.Config, []string, error) {
+	a, warnings, err := normalize(a, specs)
 	if err != nil {
 		return nil, nil, err
 	}
-	metrics, err := metricsByLanguage(a)
+	metrics, err := metricsByLanguage(a, specs)
 	if err != nil {
 		return nil, nil, err
 	}
-	cfg := assemble(a, metrics)
-	if issues := config.Validate(cfg).Errors(); len(issues) > 0 {
+	cfg := assemble(a, metrics, specs)
+	if issues := config.Validate(cfg, specs).Errors(); len(issues) > 0 {
 		return nil, nil, fmt.Errorf("internal: built config is invalid: %v", issues)
 	}
 	return cfg, warnings, nil
@@ -43,9 +44,9 @@ func Build(a Answers) (*config.Config, []string, error) {
 
 // normalize fills every defaulted field and validates the answers against
 // the vocabulary. The rules are FR-3 to FR-8 of the init spec.
-func normalize(a Answers) (Answers, []string, error) {
+func normalize(a Answers, specs []config.LanguageSpec) (Answers, []string, error) {
 	var warnings []string
-	langs, err := normalizeLanguages(a.Languages)
+	langs, err := normalizeLanguages(a.Languages, specs)
 	if err != nil {
 		return a, nil, err
 	}
@@ -73,7 +74,7 @@ func normalize(a Answers) (Answers, []string, error) {
 		return a, nil, err
 	}
 	a.MetricsByLanguage = byLang
-	selected, counted := selectionUnion(byLang)
+	selected, counted := selectionUnion(byLang, specs)
 	if err := checkWeights(selected, counted, a.Weights); err != nil {
 		return a, nil, err
 	}
@@ -83,17 +84,17 @@ func normalize(a Answers) (Answers, []string, error) {
 	if a.Timeout < 0 {
 		return a, nil, fmt.Errorf("timeout %s must not be negative", a.Timeout)
 	}
-	a.Packages = resolvePackages(a)
+	a.Packages = resolvePackages(a, specs)
 	return a, warnings, nil
 }
 
 // resolvePackages merges the flat prefix list with the per-language lists of
-// the selected languages, deduplicated in canonical language order.
-func resolvePackages(a Answers) []string {
+// the selected languages, deduplicated in specs order.
+func resolvePackages(a Answers, specs []config.LanguageSpec) []string {
 	merged := append([]string(nil), a.Packages...)
-	for _, lang := range config.Languages() {
-		if slices.Contains(a.Languages, lang) {
-			merged = append(merged, a.PackagesByLanguage[lang]...)
+	for _, spec := range specs {
+		if slices.Contains(a.Languages, spec.ID) {
+			merged = append(merged, a.PackagesByLanguage[spec.ID]...)
 		}
 	}
 	return cleanList(merged)
@@ -101,15 +102,16 @@ func resolvePackages(a Answers) []string {
 
 // normalizeLanguages requires at least one known language and drops
 // duplicates, keeping the given order.
-func normalizeLanguages(langs []config.Language) ([]config.Language, error) {
+func normalizeLanguages(langs []config.Language, specs []config.LanguageSpec) ([]config.Language, error) {
+	known := config.LanguageIDs(specs)
 	if len(langs) == 0 {
-		return nil, fmt.Errorf("at least one language is required; known ids: %s", join(config.Languages()))
+		return nil, fmt.Errorf("at least one language is required; known ids: %s", join(known))
 	}
 	var out []config.Language
 	seen := map[config.Language]bool{}
 	for _, lang := range langs {
-		if !config.IsLanguage(lang) {
-			return nil, fmt.Errorf("language %q is not one of %s", lang, join(config.Languages()))
+		if !slices.Contains(known, lang) {
+			return nil, fmt.Errorf("language %q is not one of %s", lang, join(known))
 		}
 		if !seen[lang] {
 			seen[lang] = true
@@ -208,13 +210,17 @@ func normalizeSelection(sel []config.MetricID) ([]config.MetricID, error) {
 // selected holds every id a language asked for; counted leaves out the ids
 // metricsByLanguage drops as not applicable, so it is the set a weight
 // override can still reach.
-func selectionUnion(byLang map[config.Language][]config.MetricID) (selected, counted []config.MetricID) {
+func selectionUnion(
+	byLang map[config.Language][]config.MetricID,
+	specs []config.LanguageSpec,
+) (selected, counted []config.MetricID) {
 	inSelection := map[config.MetricID]bool{}
 	applicable := map[config.MetricID]bool{}
 	for lang, sel := range byLang {
+		spec, _ := config.FindSpec(specs, lang)
 		for _, id := range sel {
 			inSelection[id] = true
-			if config.IsApplicable(lang, id) {
+			if spec.IsApplicable(id) {
 				applicable[id] = true
 			}
 		}
@@ -262,13 +268,17 @@ func checkWeights(selected, counted []config.MetricID, weights map[config.Metric
 // metricsByLanguage drops the metrics a language cannot count and resolves
 // each remaining weight; a language left under config.MinMetrics turns into
 // ErrTooFewMetrics.
-func metricsByLanguage(a Answers) (map[config.Language]map[config.MetricID]float64, error) {
+func metricsByLanguage(
+	a Answers,
+	specs []config.LanguageSpec,
+) (map[config.Language]map[config.MetricID]float64, error) {
 	out := make(map[config.Language]map[config.MetricID]float64, len(a.Languages))
 	for _, lang := range a.Languages {
+		spec, _ := config.FindSpec(specs, lang)
 		sel := a.MetricsByLanguage[lang]
 		weights := make(map[config.MetricID]float64, len(sel))
 		for _, id := range sel {
-			if !config.IsApplicable(lang, id) {
+			if !spec.IsApplicable(id) {
 				continue
 			}
 			w := config.DefaultWeight(id)
@@ -286,7 +296,11 @@ func metricsByLanguage(a Answers) (map[config.Language]map[config.MetricID]float
 }
 
 // assemble lays the normalized answers out as the configuration document.
-func assemble(a Answers, metrics map[config.Language]map[config.MetricID]float64) *config.Config {
+func assemble(
+	a Answers,
+	metrics map[config.Language]map[config.MetricID]float64,
+	specs []config.LanguageSpec,
+) *config.Config {
 	cfgMetrics := make(map[config.Language]config.PatternWeights, len(metrics))
 	limits := make(map[config.Language]config.PatternLimits, len(metrics))
 	for lang, weights := range metrics {
@@ -309,24 +323,24 @@ func assemble(a Answers, metrics map[config.Language]map[config.MetricID]float64
 			Packages:   a.Packages,
 		},
 		Include: []string{},
-		Exclude: excludes(a),
+		Exclude: excludes(a, specs),
 	}
 }
 
 // excludes joins the default exclude globs of every selected language,
-// deduplicated in canonical language order. Without DefaultExcludes the list
-// stays empty.
-func excludes(a Answers) []string {
+// deduplicated in specs order. Without DefaultExcludes the list stays
+// empty.
+func excludes(a Answers, specs []config.LanguageSpec) []string {
 	if !a.DefaultExcludes {
 		return []string{}
 	}
 	var out []string
 	seen := map[string]bool{}
-	for _, lang := range config.Languages() {
-		if !slices.Contains(a.Languages, lang) {
+	for _, spec := range specs {
+		if !slices.Contains(a.Languages, spec.ID) {
 			continue
 		}
-		for _, glob := range config.DefaultExcludes(lang) {
+		for _, glob := range spec.DefaultExcludes {
 			if !seen[glob] {
 				seen[glob] = true
 				out = append(out, glob)

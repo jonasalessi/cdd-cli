@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// rules returns the issues of Validate(cfg) that carry rule.
+// rules returns the issues of Validate(cfg, testSpecs()) that carry rule.
 func rules(t *testing.T, cfg *Config, rule string) Issues {
 	t.Helper()
 	var out Issues
-	for _, i := range Validate(cfg) {
+	for _, i := range Validate(cfg, testSpecs()) {
 		if i.Rule == rule {
 			out = append(out, i)
 		}
@@ -23,7 +23,7 @@ func rules(t *testing.T, cfg *Config, rule string) Issues {
 
 func assertOnly(t *testing.T, cfg *Config, rule, severity string, contains string) {
 	t.Helper()
-	issues := Validate(cfg)
+	issues := Validate(cfg, testSpecs())
 	require.NotEmpty(t, issues, "expected a %s finding", rule)
 	for _, i := range issues {
 		assert.Equal(t, rule, i.Rule, i)
@@ -33,12 +33,12 @@ func assertOnly(t *testing.T, cfg *Config, rule, severity string, contains strin
 }
 
 func TestValidateValid(t *testing.T) {
-	assert.Empty(t, Validate(valid()))
-	assert.Empty(t, Validate(legacyGoTypeScript()))
+	assert.Empty(t, Validate(valid(), testSpecs()))
+	assert.Empty(t, Validate(legacyGammaDelta(), testSpecs()))
 }
 
 func TestValidateNil(t *testing.T) {
-	issues := Validate(nil)
+	issues := Validate(nil, testSpecs())
 	require.Len(t, issues, 1)
 	assert.Equal(t, RuleVersion, issues[0].Rule)
 	assert.True(t, issues.HasErrors())
@@ -49,7 +49,7 @@ func TestValidateAggregates(t *testing.T) {
 	cfg.Version = 2
 	cfg.ProjectType = "brownfield"
 	cfg.Reporter.Format = "html"
-	issues := Validate(cfg)
+	issues := Validate(cfg, testSpecs())
 	assert.Len(t, issues, 3, "never fail-fast: %s", issues)
 	assert.Len(t, issues.Errors(), 3)
 	assert.Empty(t, issues.Warnings())
@@ -72,7 +72,7 @@ func TestV2ProjectType(t *testing.T) {
 	assert.Contains(t, issues[0].Message, `"brownfield"`)
 
 	for _, pt := range ProjectTypes() {
-		cfg := legacyGoTypeScript()
+		cfg := legacyGammaDelta()
 		cfg.ProjectType = pt
 		cfg.Enforcement.LegacyMode = ModeStrictAll
 		assert.Empty(t, rules(t, cfg, RuleProjectType), pt)
@@ -96,69 +96,75 @@ func TestV3Languages(t *testing.T) {
 	assert.Contains(t, issues[1].Message, `icp-limits: "rust"`)
 
 	assert.Empty(t, rules(t, valid(), RuleLanguages))
+
+	cfg = valid()
+	issues = rules(t, cfg, RuleLanguages)
+	assert.Empty(t, issues)
+	issues = Validate(cfg, nil)
+	assert.Contains(t, issues.String(), `metrics: "gamma" is not one of`, "a language absent from specs is unknown")
 }
 
 func TestV4MetricIDs(t *testing.T) {
 	cfg := valid()
-	cfg.Metrics[LangGo][0].Weights["nesting"] = 1
+	cfg.Metrics[langGamma][0].Weights["nesting"] = 1
 	assertOnly(t, cfg, RuleMetricIDs, SeverityError, `"nesting" is not one of`)
 
 	cfg = valid()
-	cfg.Metrics[LangGo][0].Weights[MetricExceptionHandling] = 1
-	assertOnly(t, cfg, RuleMetricIDs, SeverityError, "exception_handling does not apply to go")
+	cfg.Metrics[langGamma][0].Weights[MetricExceptionHandling] = 1
+	assertOnly(t, cfg, RuleMetricIDs, SeverityError, "exception_handling does not apply to gamma")
 
 	cfg = valid()
-	cfg.Metrics[LangGo][0].Weights[MetricLambda] = 1
+	cfg.Metrics[langGamma][0].Weights[MetricLambda] = 1
 	assert.Empty(t, rules(t, cfg, RuleMetricIDs))
 }
 
 func TestV5Weights(t *testing.T) {
 	for _, w := range []float64{0, -1} {
 		cfg := valid()
-		cfg.Metrics[LangGo][0].Weights[MetricCodeBranch] = w
-		assertOnly(t, cfg, RuleWeights, SeverityError, "metrics.go.\".*\".code_branch: weight")
+		cfg.Metrics[langGamma][0].Weights[MetricCodeBranch] = w
+		assertOnly(t, cfg, RuleWeights, SeverityError, "metrics.gamma.\".*\".code_branch: weight")
 	}
 	cfg := valid()
-	cfg.Metrics[LangGo][0].Weights[MetricCodeBranch] = 0.1
+	cfg.Metrics[langGamma][0].Weights[MetricCodeBranch] = 0.1
 	assert.Empty(t, rules(t, cfg, RuleWeights))
 }
 
 func TestV6Limits(t *testing.T) {
 	for _, limit := range []int{0, -5} {
 		cfg := valid()
-		cfg.ICPLimits[LangGo][0].Limit = limit
+		cfg.ICPLimits[langGamma][0].Limit = limit
 		assertOnly(t, cfg, RuleLimits, SeverityError, "must be >= 1")
 	}
 
 	for _, limit := range []int{6, 15} {
 		cfg := valid()
-		cfg.ICPLimits[LangGo][0].Limit = limit
+		cfg.ICPLimits[langGamma][0].Limit = limit
 		assertOnly(t, cfg, RuleLimits, SeverityWarning, "outside the greenfield band 7-14")
-		assert.False(t, Validate(cfg).HasErrors())
+		assert.False(t, Validate(cfg, testSpecs()).HasErrors())
 	}
 
 	for _, limit := range []int{7, 10, 14} {
 		cfg := valid()
-		cfg.ICPLimits[LangGo][0].Limit = limit
+		cfg.ICPLimits[langGamma][0].Limit = limit
 		assert.Empty(t, rules(t, cfg, RuleLimits), limit)
 	}
 
-	cfg := legacyGoTypeScript()
-	cfg.ICPLimits[LangGo][0].Limit = 41
+	cfg := legacyGammaDelta()
+	cfg.ICPLimits[langGamma][0].Limit = 41
 	assertOnly(t, cfg, RuleLimits, SeverityWarning, "outside the legacy band 20-40")
 }
 
 func TestV7Patterns(t *testing.T) {
 	cfg := valid()
-	cfg.Metrics[LangGo] = append(
-		cfg.Metrics[LangGo],
+	cfg.Metrics[langGamma] = append(
+		cfg.Metrics[langGamma],
 		PatternWeight{Pattern: "(", Weights: map[MetricID]float64{MetricCodeBranch: 1}},
 	)
-	assertOnly(t, cfg, RulePatterns, SeverityError, `metrics.go."(": invalid regex`)
+	assertOnly(t, cfg, RulePatterns, SeverityError, `metrics.gamma."(": invalid regex`)
 
 	cfg = valid()
-	cfg.ICPLimits[LangGo] = append(cfg.ICPLimits[LangGo], PatternLimit{Pattern: "[", Limit: 10})
-	assertOnly(t, cfg, RulePatterns, SeverityError, `icp-limits.go."[": invalid regex`)
+	cfg.ICPLimits[langGamma] = append(cfg.ICPLimits[langGamma], PatternLimit{Pattern: "[", Limit: 10})
+	assertOnly(t, cfg, RulePatterns, SeverityError, `icp-limits.gamma."[": invalid regex`)
 
 	cfg = valid()
 	cfg.Include = []string{RegexPrefix + "("}
@@ -170,8 +176,8 @@ func TestV7Patterns(t *testing.T) {
 
 	cfg = valid()
 	cfg.Include = []string{GlobPrefix + "src/**", RegexPrefix + `^src/.*\.go$`, "(unbalanced glob is fine"}
-	cfg.Metrics[LangGo] = append(
-		cfg.Metrics[LangGo],
+	cfg.Metrics[langGamma] = append(
+		cfg.Metrics[langGamma],
 		PatternWeight{Pattern: `.*/adapters/.*`, Weights: map[MetricID]float64{MetricCodeBranch: 1}},
 	)
 	assert.Empty(t, rules(t, cfg, RulePatterns))
@@ -179,28 +185,28 @@ func TestV7Patterns(t *testing.T) {
 
 func TestV8DefaultEntry(t *testing.T) {
 	cfg := valid()
-	cfg.Metrics[LangGo] = PatternWeights{}
-	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `metrics.go: no patterns`)
+	cfg.Metrics[langGamma] = PatternWeights{}
+	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `metrics.gamma: no patterns`)
 
 	cfg = valid()
-	cfg.Metrics[LangGo][0].Pattern = ".*/adapters/.*"
-	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `metrics.go: first pattern is ".*/adapters/.*"`)
+	cfg.Metrics[langGamma][0].Pattern = ".*/adapters/.*"
+	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `metrics.gamma: first pattern is ".*/adapters/.*"`)
 
 	cfg = valid()
-	cfg.Metrics[LangGo][0].Weights = map[MetricID]float64{MetricCodeBranch: 1, MetricCondition: 1}
+	cfg.Metrics[langGamma][0].Weights = map[MetricID]float64{MetricCodeBranch: 1, MetricCondition: 1}
 	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, "2 metrics configured, at least 3 are required")
 
 	cfg = valid()
-	cfg.ICPLimits[LangGo] = nil
-	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `icp-limits.go: no patterns`)
+	cfg.ICPLimits[langGamma] = nil
+	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `icp-limits.gamma: no patterns`)
 
 	cfg = valid()
-	cfg.ICPLimits[LangGo][0].Pattern = ".*/adapters/.*"
-	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `icp-limits.go: first pattern is`)
+	cfg.ICPLimits[langGamma][0].Pattern = ".*/adapters/.*"
+	assertOnly(t, cfg, RuleDefaultEntry, SeverityError, `icp-limits.gamma: first pattern is`)
 
 	cfg = valid()
-	cfg.Metrics[LangGo] = append(
-		cfg.Metrics[LangGo],
+	cfg.Metrics[langGamma] = append(
+		cfg.Metrics[langGamma],
 		PatternWeight{Pattern: ".*/adapters/.*", Weights: map[MetricID]float64{MetricCodeBranch: 1}},
 	)
 	assert.Empty(t, rules(t, cfg, RuleDefaultEntry), "later patterns may have fewer metrics")
@@ -215,19 +221,19 @@ func TestV9LegacyMode(t *testing.T) {
 	cfg.Enforcement.LegacyMode = ModeStrictOnNewOnly
 	assertOnly(t, cfg, RuleLegacyMode, SeverityError, "greenfield project requires strict_all")
 
-	cfg = legacyGoTypeScript()
+	cfg = legacyGammaDelta()
 	cfg.Enforcement.LegacyMode = ModeMeasureOnly
 	assertOnly(t, cfg, RuleLegacyMode, SeverityError, "block_on_ci: must be false when legacy_mode is measure_only")
 	cfg.Enforcement.BlockOnCI = false
-	assert.Empty(t, Validate(cfg))
+	assert.Empty(t, Validate(cfg, testSpecs()))
 
-	cfg = legacyGoTypeScript()
+	cfg = legacyGammaDelta()
 	cfg.Enforcement.LegacyMode = ModeBoyScout
 	assertOnly(t, cfg, RuleLegacyMode, SeverityWarning, "boy_scout needs the baseline store")
-	assert.False(t, Validate(cfg).HasErrors())
+	assert.False(t, Validate(cfg, testSpecs()).HasErrors())
 
 	for _, mode := range []string{ModeStrictAll, ModeStrictOnNewOnly} {
-		cfg := legacyGoTypeScript()
+		cfg := legacyGammaDelta()
 		cfg.Enforcement.LegacyMode = mode
 		assert.Empty(t, rules(t, cfg, RuleLegacyMode), mode)
 	}
@@ -254,13 +260,13 @@ func TestV10Reporter(t *testing.T) {
 func TestV11LanguageSets(t *testing.T) {
 	cfg := valid()
 	cfg.ICPLimits = nil
-	assertOnly(t, cfg, RuleLanguageSets, SeverityError, "icp-limits: missing entry for go")
+	assertOnly(t, cfg, RuleLanguageSets, SeverityError, "icp-limits: missing entry for gamma")
 
 	cfg = valid()
-	cfg.ICPLimits[LangJava] = PatternLimits{{Pattern: PatternAll, Limit: 10}}
-	assertOnly(t, cfg, RuleLanguageSets, SeverityError, "metrics: missing entry for java")
+	cfg.ICPLimits[langAlpha] = PatternLimits{{Pattern: PatternAll, Limit: 10}}
+	assertOnly(t, cfg, RuleLanguageSets, SeverityError, "metrics: missing entry for alpha")
 
-	assert.Empty(t, rules(t, legacyGoTypeScript(), RuleLanguageSets))
+	assert.Empty(t, rules(t, legacyGammaDelta(), RuleLanguageSets))
 }
 
 func TestV12Timeout(t *testing.T) {
@@ -292,14 +298,14 @@ func TestRoundTrip(t *testing.T) {
 			for _, patterns := range cfg.Metrics {
 				require.Len(t, patterns, 3)
 			}
-			out, err := Render(cfg)
+			out, err := Render(cfg, testSpecs())
 			require.NoError(t, err)
 			parsed, err := Parse(bytes.NewReader(out))
 			require.NoError(t, err)
-			assert.False(t, Validate(parsed).HasErrors(), Validate(parsed))
+			assert.False(t, Validate(parsed, testSpecs()).HasErrors(), Validate(parsed, testSpecs()))
 			assert.Equal(t, cfg, parsed)
 
-			again, err := Render(parsed)
+			again, err := Render(parsed, testSpecs())
 			require.NoError(t, err)
 			assert.Equal(t, string(out), string(again), "render is stable")
 		})
