@@ -241,6 +241,7 @@ missing.
 | --- | --- |
 | `--all` | Lists every unit, not only the ones over their limit. |
 | `--explain` | Lists every counted construct of each listed unit with its position and ICPs. |
+| `--format` | Renders the report as `console`, `json`, `xml` or `markdown`, ignoring the configured `reporter.format`. |
 | `--config` | Path to the configuration file. Default `cdd.config.yaml`. |
 
 #### What it reads from the configuration
@@ -251,7 +252,7 @@ missing.
 | `icp-limits` | The limit each unit is compared with. The last matching pattern wins. |
 | `enforcement` | Whether a unit over its limit fails the run. |
 | `timeout` | Wall-clock budget for the whole run. `0s` removes the budget. |
-| `reporter` | `format` picks `console`, `json`, `xml` or `markdown`; `outputFile` writes the report to that path instead of stdout. |
+| `reporter` | `format` picks `console`, `json`, `xml` or `markdown` unless `--format` says otherwise; `outputFile` writes the report to that path instead of stdout. |
 | `internal_coupling` | Which import prefixes count as internal coupling rather than external. |
 | `include` / `exclude` | Which files are analyzed. `exclude` wins over `include`. |
 
