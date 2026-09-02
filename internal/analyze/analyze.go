@@ -63,7 +63,24 @@ type Unit struct {
 	// Line and Col locate the unit's declaration, 1-based.
 	Line, Col int
 	// Counts are raw occurrences per metric, before any weight is applied.
+	// They equal the sum of Occurrences' Count per metric.
 	Counts map[config.MetricID]int
+	// Occurrences locate every counted construct, in source order, so an
+	// editor can show where each point comes from.
+	Occurrences []Occurrence
+}
+
+// Occurrence is one counted construct of a unit. Positions are 1-based;
+// EndLine and EndCol point just past the construct, like an editor range.
+// A coupling occurrence sits on the import statement that brings the
+// dependency in, even though that statement is outside the unit.
+type Occurrence struct {
+	Metric          config.MetricID
+	Line, Col       int
+	EndLine, EndCol int
+	// Count is how many points the construct adds before weighting: 1 for
+	// most, 2 for a clause pair such as `y ||= b`.
+	Count int
 }
 
 // Request is everything a run needs.
@@ -123,6 +140,16 @@ type UnitReport struct {
 	Limit int
 	// Exceeds is Total > Limit.
 	Exceeds bool
+	// Occurrences are the unit's counted constructs for the enabled
+	// metrics, in source order, each with its weighted score.
+	Occurrences []OccurrenceReport
+}
+
+// OccurrenceReport is one Occurrence after its weight has been applied.
+type OccurrenceReport struct {
+	Occurrence
+	// Score is Count multiplied by the metric's weight.
+	Score float64
 }
 
 // Violations counts the units above their limit.
