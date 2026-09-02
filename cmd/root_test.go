@@ -2,8 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"io"
+	"os"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -66,4 +69,26 @@ func TestConfigFlag(t *testing.T) {
 	_, _, code := run(t, "--config", "other.yaml", "version")
 	assert.Equal(t, 0, code)
 	assert.Equal(t, "other.yaml", configPath)
+}
+
+func TestExitCodeErrorPassesItsCodeThroughSilently(t *testing.T) {
+	assert.Equal(t, "exit code 130", exitCodeError{code: 130}.Error())
+
+	c := &cobra.Command{
+		RunE:          func(*cobra.Command, []string) error { return exitCodeError{code: 130} },
+		SilenceUsage:  true,
+		SilenceErrors: true,
+	}
+	c.SetOut(io.Discard)
+	c.SetErr(io.Discard)
+	var stderr bytes.Buffer
+	assert.Equal(t, 130, execute(c, &stderr))
+	assert.Empty(t, stderr.String(), "the ctrl-c convention prints nothing")
+}
+
+func TestExecuteReadsOsArgs(t *testing.T) {
+	args := os.Args
+	t.Cleanup(func() { os.Args = args })
+	os.Args = []string{"cdd", "version"}
+	assert.Equal(t, 0, Execute())
 }

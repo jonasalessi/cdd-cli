@@ -73,7 +73,8 @@ func normalize(a Answers) (Answers, []string, error) {
 		return a, nil, err
 	}
 	a.MetricsByLanguage = byLang
-	if err := checkWeights(selectionUnion(byLang), a.Weights); err != nil {
+	selected, counted := selectionUnion(byLang)
+	if err := checkWeights(selected, counted, a.Weights); err != nil {
 		return a, nil, err
 	}
 	if a.Timeout == 0 {
@@ -118,11 +119,15 @@ func normalizeLanguages(langs []config.Language) ([]config.Language, error) {
 	return out, nil
 }
 
-// normalizeMode resolves the enforcement mode: greenfield always gets
-// strict_all (a given mode is ignored with a warning), legacy defaults to
-// strict_on_new_only, and boy_scout warns that its baseline store does not
-// exist yet.
+// normalizeMode resolves the enforcement mode. An unknown mode is an error
+// whatever the project type, so a typo never passes for the value it was
+// meant to be. Greenfield then always gets strict_all (another mode is
+// ignored with a warning), legacy defaults to strict_on_new_only, and
+// boy_scout warns that its baseline store does not exist yet.
 func normalizeMode(projectType, mode string) (string, []string, error) {
+	if mode != "" && !config.IsLegacyMode(mode) {
+		return "", nil, fmt.Errorf("legacy mode %q is not one of %s", mode, join(config.LegacyModes()))
+	}
 	if projectType == config.ProjectGreenfield {
 		if mode != "" && mode != config.ModeStrictAll {
 			warning := fmt.Sprintf("legacy mode %q only applies to %s projects; using %s",
@@ -133,9 +138,6 @@ func normalizeMode(projectType, mode string) (string, []string, error) {
 	}
 	if mode == "" {
 		mode = config.ModeStrictOnNewOnly
-	}
-	if !config.IsLegacyMode(mode) {
-		return "", nil, fmt.Errorf("legacy mode %q is not one of %s", mode, join(config.LegacyModes()))
 	}
 	if mode == config.ModeBoyScout {
 		warning := fmt.Sprintf("legacy mode %s needs the baseline store, which is not supported yet", mode)
@@ -203,25 +205,37 @@ func normalizeSelection(sel []config.MetricID) ([]config.MetricID, error) {
 }
 
 // selectionUnion joins the per-language selections in canonical metric order.
-func selectionUnion(byLang map[config.Language][]config.MetricID) []config.MetricID {
-	present := map[config.MetricID]bool{}
-	for _, sel := range byLang {
+// selected holds every id a language asked for; counted leaves out the ids
+// metricsByLanguage drops as not applicable, so it is the set a weight
+// override can still reach.
+func selectionUnion(byLang map[config.Language][]config.MetricID) (selected, counted []config.MetricID) {
+	inSelection := map[config.MetricID]bool{}
+	applicable := map[config.MetricID]bool{}
+	for lang, sel := range byLang {
 		for _, id := range sel {
-			present[id] = true
+			inSelection[id] = true
+			if config.IsApplicable(lang, id) {
+				applicable[id] = true
+			}
 		}
 	}
-	var out []config.MetricID
 	for _, id := range config.Metrics() {
-		if present[id] {
-			out = append(out, id)
+		if inSelection[id] {
+			selected = append(selected, id)
+		}
+		if applicable[id] {
+			counted = append(counted, id)
 		}
 	}
-	return out
+	return selected, counted
 }
 
-// checkWeights rejects overrides for unknown metrics, for metrics no
-// language selected, and any weight at or below zero.
-func checkWeights(selected []config.MetricID, weights map[config.MetricID]float64) error {
+// checkWeights rejects overrides for unknown metrics, for metrics no language
+// selected, for metrics every selected language drops as not applicable, and
+// any weight at or below zero. Judging the override against counted rather
+// than selected is what keeps it from being written for a metric no analyzer
+// will ever weigh.
+func checkWeights(selected, counted []config.MetricID, weights map[config.MetricID]float64) error {
 	ids := make([]string, 0, len(weights))
 	for id := range weights {
 		ids = append(ids, string(id))
@@ -232,7 +246,10 @@ func checkWeights(selected []config.MetricID, weights map[config.MetricID]float6
 		if !config.IsMetric(id) {
 			return fmt.Errorf("weight for unknown metric %q; known ids: %s", id, join(config.Metrics()))
 		}
-		if !slices.Contains(selected, id) {
+		if !slices.Contains(counted, id) {
+			if slices.Contains(selected, id) {
+				return fmt.Errorf("weight for metric %q, which none of the selected languages can count", id)
+			}
 			return fmt.Errorf("weight for metric %q, which is not selected", id)
 		}
 		if w := weights[id]; w <= 0 {

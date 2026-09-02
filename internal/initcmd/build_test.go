@@ -128,6 +128,10 @@ func TestBuildVocabularyErrors(t *testing.T) {
 		"unknown legacy mode": {
 			func(a *Answers) { a.ProjectType = config.ProjectLegacy; a.LegacyMode = "yolo" }, `"yolo"`,
 		},
+		"unknown legacy mode on greenfield": {
+			func(a *Answers) { a.ProjectType = config.ProjectGreenfield; a.LegacyMode = "measur_only" },
+			`"measur_only" is not one of`,
+		},
 		"unknown metric": {
 			func(a *Answers) { a.Metrics = []config.MetricID{"karma", config.MetricCondition, config.MetricLambda} },
 			`"karma"`,
@@ -266,6 +270,13 @@ func TestBuildWeightsAgainstUnion(t *testing.T) {
 		a.Weights = map[config.MetricID]float64{config.MetricLambda: 2}
 		_, _, err := Build(a)
 		assert.ErrorContains(t, err, "not selected")
+	})
+	t.Run("a weight no selected language can count is rejected, not dropped", func(t *testing.T) {
+		a := goAnswers()
+		a.Weights = map[config.MetricID]float64{config.MetricInheritance: 2}
+		_, _, err := Build(a)
+		assert.ErrorContains(t, err, "none of the selected languages can count",
+			"inheritance is in the default selection but go cannot count it")
 	})
 }
 
