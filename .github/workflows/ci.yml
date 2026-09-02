@@ -8,6 +8,11 @@ on:
 permissions:
   contents: read
 
+# The TypeScript analyzer embeds Tree-sitter through cgo, so every job needs a
+# C compiler. ubuntu-latest ships gcc.
+env:
+  CGO_ENABLED: "1"
+
 jobs:
   lint:
     runs-on: ubuntu-latest

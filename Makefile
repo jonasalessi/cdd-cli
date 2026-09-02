@@ -1,5 +1,8 @@
 .PHONY: setup build test cover lint fmt check-literals
 
+# The TypeScript analyzer embeds Tree-sitter through cgo; a C compiler is required.
+export CGO_ENABLED = 1
+
 GOLANGCI_LINT_VERSION = v2.13.2
 GOLANGCI_LINT = bin/golangci-lint
 
