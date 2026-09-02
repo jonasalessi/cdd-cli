@@ -228,6 +228,14 @@ TypeScript is the only language with an analyzer today. `init` still configures
 Go, Java and Kotlin, and `check` stops with `no analyzer for <language> yet`
 rather than reporting zero ICPs for files it cannot read.
 
+## Support
+
+For issues, please visit the [Issue Tracker](https://github.com/jonasalessi/cdd-cli/issues).
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md).
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
