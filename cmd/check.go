@@ -27,7 +27,7 @@ const (
 )
 
 func newCheckCmd() *cobra.Command {
-	var all bool
+	var all, explain bool
 	c := &cobra.Command{
 		Use:   "check",
 		Short: "Measure the project and compare every unit with its limit",
@@ -43,6 +43,10 @@ subdirectory measures that subdirectory alone.
 The report lists the units above their limit; --all lists every measured unit.
 The summary counts the whole run either way.
 
+--explain details whatever is listed, adding every counted construct with its
+position and the ICPs it contributed, so an editor plugin can turn the json
+report into inline hints.
+
 Exit codes:
 
   0  no unit is above its limit, or the enforcement only reports them
@@ -51,10 +55,11 @@ Exit codes:
   2  the timeout elapsed; the printed report covers the files analyzed in time`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runCheck(c, configPath, report.Options{All: all})
+			return runCheck(c, configPath, report.Options{All: all, Explain: explain})
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "list every unit, not only the ones over their limit")
+	c.Flags().BoolVar(&explain, "explain", false, "list every counted construct with its position and ICPs")
 	return c
 }
 

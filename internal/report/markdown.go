@@ -58,11 +58,15 @@ func markdownUnit(p *printer, u Unit) {
 }
 
 // markdownMetrics writes the per-unit breakdown under the table: one bullet
-// per unit, naming the metrics that earned its ICPs.
+// per unit, naming the metrics that earned its ICPs, and — when the report
+// explains itself — a sub-list of the constructs behind them.
 func markdownMetrics(p *printer, units []Unit) {
 	p.printf("\nMetrics:\n\n")
 	for _, u := range units {
 		p.printf("- `%s` — %s\n", escapeCell(u.Name), countedMetrics(u.Metrics))
+		for _, o := range u.constructs() {
+			p.printf("  - %s\n", occurrenceText(o))
+		}
 	}
 }
 

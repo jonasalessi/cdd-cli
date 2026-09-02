@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<report root="/projects/shop" filter="violations" partial="false" elapsed_ms="1234">
+<report root="/projects/shop" filter="violations" explain="false" partial="false" elapsed_ms="1234">
   <files>
     <file path="src/checkout.ts" language="typescript">
       <units>

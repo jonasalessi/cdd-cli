@@ -54,6 +54,17 @@ func goldenCases() map[string]goldenCase {
 		"":         {res: fullRun()},
 		"-all":     {res: fullRun(), opts: Options{All: true}},
 		"-partial": {res: partialRun()},
+		"-explain": {res: fullRun(), opts: Options{All: true, Explain: true}},
+	}
+}
+
+// occurrence builds one weighed construct for the fixtures.
+func occurrence(id config.MetricID, line, col, endLine, endCol, count int, score float64) analyze.OccurrenceReport {
+	return analyze.OccurrenceReport{
+		Occurrence: analyze.Occurrence{
+			Metric: id, Line: line, Col: col, EndLine: endLine, EndCol: endCol, Count: count,
+		},
+		Score: score,
 	}
 }
 
@@ -107,6 +118,9 @@ func greetUnit() analyze.UnitReport {
 			config.MetricExternalCoupling: 0.5,
 		},
 		Total: 2.5, Limit: 10,
+		Occurrences: []analyze.OccurrenceReport{
+			occurrence(config.MetricCodeBranch, 2, 3, 4, 4, 1, 1),
+		},
 	}
 }
 
@@ -125,6 +139,15 @@ func checkoutServiceUnit() analyze.UnitReport {
 			config.MetricExternalCoupling: 5.5,
 		},
 		Total: 14.5, Limit: 10, Exceeds: true,
+		// A handful of the constructs the unit counted, in source order:
+		// the import that couples the file, the branch, and the two clauses
+		// of the branch's condition.
+		Occurrences: []analyze.OccurrenceReport{
+			occurrence(config.MetricExternalCoupling, 1, 1, 1, 30, 1, 0.5),
+			occurrence(config.MetricCodeBranch, 12, 3, 14, 4, 1, 1),
+			occurrence(config.MetricCondition, 12, 7, 12, 15, 1, 1),
+			occurrence(config.MetricCondition, 12, 19, 12, 28, 1, 1),
+		},
 	}
 }
 

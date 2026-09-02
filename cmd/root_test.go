@@ -66,6 +66,14 @@ func TestInitHelpFlagSet(t *testing.T) {
 	assert.Contains(t, out, "(default 4s)")
 }
 
+func TestCheckHelpFlagSet(t *testing.T) {
+	out, _, code := run(t, "check", "--help")
+	require.Equal(t, 0, code)
+	assert.Contains(t, out, "--all")
+	assert.Contains(t, out, "--explain")
+	assert.Contains(t, out, "list every counted construct with its position and ICPs")
+}
+
 func TestConfigFlag(t *testing.T) {
 	_, _, code := run(t, "--config", "other.yaml", "version")
 	assert.Equal(t, 0, code)
