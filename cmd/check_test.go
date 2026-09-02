@@ -326,6 +326,22 @@ func TestCheckPathNarrowsTheRunToOneFile(t *testing.T) {
 	assert.Contains(t, stdout, `"occurrences"`)
 }
 
+func TestCheckPathsAcceptACommaSeparatedList(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	writeFixtureFile(t, dir, "src/order.ts", overLimitSource)
+	writeFixtureFile(t, dir, "src/other.ts", overLimitSource)
+	legacyProject(t, dir, "false", "measure_only")
+
+	list := filepath.Join("src", "greeter.ts") + ", " + filepath.Join("src", "order.ts") + ","
+	stdout, stderr, code := runCdd(t, dir, "check", list, "--all")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "src/greeter.ts")
+	assert.Contains(t, stdout, "src/order.ts")
+	assert.NotContains(t, stdout, "src/other.ts", "only the listed files are part of the run")
+}
+
 func TestCheckPathResolvesFromTheWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	writeTSFixture(t, dir)
