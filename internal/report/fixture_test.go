@@ -41,11 +41,19 @@ const fixtureElapsed = 1234 * time.Millisecond
 // package never interprets it.
 const fixtureLanguage = config.Language("typescript")
 
-// goldenRuns pairs every golden-file suffix with the run it renders.
-func goldenRuns() map[string]analyze.RunResult {
-	return map[string]analyze.RunResult{
-		"":         fullRun(),
-		"-partial": partialRun(),
+// goldenCase is one golden fixture: the run it renders and the options it
+// renders with.
+type goldenCase struct {
+	res  analyze.RunResult
+	opts Options
+}
+
+// goldenCases pairs every golden-file suffix with the report it renders.
+func goldenCases() map[string]goldenCase {
+	return map[string]goldenCase{
+		"":         {res: fullRun()},
+		"-all":     {res: fullRun(), opts: Options{All: true}},
+		"-partial": {res: partialRun()},
 	}
 }
 

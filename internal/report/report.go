@@ -21,10 +21,49 @@ import (
 // is meant to be read by humans and by CI, never kept secret.
 const outputFileMode = 0o644
 
+// The values of the document's filter field: which units the report lists.
+// They are not part of the configuration vocabulary, they only tell a reader
+// why a unit is missing from the document.
+const (
+	filterViolations = "violations"
+	filterAll        = "all"
+)
+
+// Options selects what a report lists.
+type Options struct {
+	// All lists every unit; the default lists only units above their limit.
+	All bool
+}
+
+// filterName spells the filter opts stands for.
+func filterName(opts Options) string {
+	if opts.All {
+		return filterAll
+	}
+	return filterViolations
+}
+
+// listedUnits are the units of one file a report lists: every unit when
+// opts.All is set, otherwise only the ones above their limit. Every format
+// lists the same units because every format renders the document this
+// filter produced.
+func listedUnits(f analyze.FileReport, opts Options) []analyze.UnitReport {
+	if opts.All {
+		return f.Units
+	}
+	out := make([]analyze.UnitReport, 0, len(f.Units))
+	for _, u := range f.Units {
+		if u.Exceeds {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 // Write renders res to w in the given format. An unknown format is an error
 // naming it.
-func Write(w io.Writer, format string, res analyze.RunResult) error {
-	doc := newReport(res)
+func Write(w io.Writer, format string, res analyze.RunResult, opts Options) error {
+	doc := newReport(res, opts)
 	switch format {
 	case config.FormatConsole:
 		return renderConsole(w, doc)
@@ -43,12 +82,12 @@ func Write(w io.Writer, format string, res analyze.RunResult) error {
 // r.OutputFile means stdout and the returned path is empty; otherwise the
 // file is created or truncated, its parent directory must already exist,
 // and the caller can print the returned path as a receipt.
-func Emit(stdout io.Writer, r config.Reporter, res analyze.RunResult) (string, error) {
+func Emit(stdout io.Writer, r config.Reporter, res analyze.RunResult, opts Options) (string, error) {
 	if r.OutputFile == nil {
-		return "", Write(stdout, r.Format, res)
+		return "", Write(stdout, r.Format, res, opts)
 	}
 	var buf bytes.Buffer
-	if err := Write(&buf, r.Format, res); err != nil {
+	if err := Write(&buf, r.Format, res, opts); err != nil {
 		return "", err
 	}
 	path := *r.OutputFile

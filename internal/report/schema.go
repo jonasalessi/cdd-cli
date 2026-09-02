@@ -14,6 +14,10 @@ type Report struct {
 	XMLName xml.Name `json:"-" xml:"report"`
 	// Root is the directory every File.Path is relative to.
 	Root string `json:"root" xml:"root,attr"`
+	// Filter says which units the document lists: "violations" for the
+	// units above their limit alone, "all" for every measured unit. The
+	// summary always counts the whole run, so the two disagree by design.
+	Filter string `json:"filter" xml:"filter,attr"`
 	// Partial is true when the timeout elapsed before every file was
 	// analyzed: Files then holds only what was finished in time.
 	Partial bool `json:"partial" xml:"partial,attr"`
@@ -80,14 +84,22 @@ type Summary struct {
 	Violations int `json:"violations" xml:"violations,attr"`
 }
 
-// newReport turns a run into the document every format renders.
-func newReport(res analyze.RunResult) Report {
+// newReport turns a run into the document every format renders. Only the
+// units opts lists reach the document; a file left without a listed unit and
+// without a warning has nothing to say and is dropped. The summary is read
+// from the run itself, so filtering never changes what was measured.
+func newReport(res analyze.RunResult, opts Options) Report {
 	files := make([]File, 0, len(res.Files))
 	for _, f := range res.Files {
-		files = append(files, newFile(f))
+		units := listedUnits(f, opts)
+		if len(units) == 0 && len(f.Warnings) == 0 {
+			continue
+		}
+		files = append(files, newFile(f, units))
 	}
 	return Report{
 		Root:      res.Root,
+		Filter:    filterName(opts),
 		Partial:   res.Partial,
 		ElapsedMS: res.Elapsed.Milliseconds(),
 		Files:     files,
@@ -96,10 +108,11 @@ func newReport(res analyze.RunResult) Report {
 	}
 }
 
-// newFile turns one weighed file into its document entry.
-func newFile(f analyze.FileReport) File {
-	units := make([]Unit, 0, len(f.Units))
-	for _, u := range f.Units {
+// newFile turns one weighed file into its document entry, listing the units
+// the filter kept.
+func newFile(f analyze.FileReport, listed []analyze.UnitReport) File {
+	units := make([]Unit, 0, len(listed))
+	for _, u := range listed {
 		units = append(units, newUnit(u))
 	}
 	return File{

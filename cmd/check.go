@@ -27,7 +27,8 @@ const (
 )
 
 func newCheckCmd() *cobra.Command {
-	return &cobra.Command{
+	var all bool
+	c := &cobra.Command{
 		Use:   "check",
 		Short: "Measure the project and compare every unit with its limit",
 		Long: `check runs the last two steps of CDD (docs/cdd.md, section 3):
@@ -39,6 +40,9 @@ It reads the configuration named by --config (cdd.config.yaml by default) and
 analyzes the tree rooted at that file's directory, so a configuration in a
 subdirectory measures that subdirectory alone.
 
+The report lists the units above their limit; --all lists every measured unit.
+The summary counts the whole run either way.
+
 Exit codes:
 
   0  no unit is above its limit, or the enforcement only reports them
@@ -47,14 +51,16 @@ Exit codes:
   2  the timeout elapsed; the printed report covers the files analyzed in time`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runCheck(c, configPath)
+			return runCheck(c, configPath, report.Options{All: all})
 		},
 	}
+	c.Flags().BoolVar(&all, "all", false, "list every unit, not only the ones over their limit")
+	return c
 }
 
 // runCheck implements cdd check: load the configuration, analyze the tree it
 // governs, report the outcome and turn it into an exit code.
-func runCheck(c *cobra.Command, path string) error {
+func runCheck(c *cobra.Command, path string, opts report.Options) error {
 	cfg, err := loadCheckConfig(c, path)
 	if err != nil {
 		return err
@@ -67,7 +73,7 @@ func runCheck(c *cobra.Command, path string) error {
 	if runErr != nil && !errors.Is(runErr, analyze.ErrTimeout) {
 		return runErr
 	}
-	if err := emitReport(c, cfg.Reporter, res); err != nil {
+	if err := emitReport(c, cfg.Reporter, res, opts); err != nil {
 		return err
 	}
 	if runErr != nil {
@@ -106,8 +112,8 @@ func commandContext(c *cobra.Command) context.Context {
 
 // emitReport renders the run where the reporter points and prints the
 // receipt when that was a file.
-func emitReport(c *cobra.Command, r config.Reporter, res analyze.RunResult) error {
-	path, err := report.Emit(c.OutOrStdout(), r, res)
+func emitReport(c *cobra.Command, r config.Reporter, res analyze.RunResult, opts report.Options) error {
+	path, err := report.Emit(c.OutOrStdout(), r, res, opts)
 	if err != nil {
 		return err
 	}
