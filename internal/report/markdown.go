@@ -11,9 +11,6 @@ const (
 		"| --- | --- | --- | --- | --- | --- |\n"
 	statusOK   = "ok"
 	statusOver = "over limit"
-	// statusNone stands in for the metric list of a unit that scored on no
-	// metric at all.
-	statusNone = "none"
 )
 
 // renderMarkdown writes the report as a GitHub-flavored document: one
@@ -80,7 +77,7 @@ func countedMetrics(ms []Metric) string {
 		}
 	}
 	if len(parts) == 0 {
-		return statusNone
+		return metricsNone
 	}
 	return strings.Join(parts, ", ")
 }

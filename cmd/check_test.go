@@ -19,8 +19,12 @@ import (
 // do not move when the default selection does.
 const checkMetrics = "code_branch,condition,exception_handling,internal_coupling,external_coupling,inheritance"
 
-// overLimitMark opens the console line of a unit above its limit.
-const overLimitMark = "✗"
+// violationLabel opens the console record of a unit above its limit, and
+// unitLabel the record of one within it.
+const (
+	violationLabel = "violation:"
+	unitLabel      = "unit:"
+)
 
 // cleanSource is one class of 1 ICP: well inside the greenfield limit.
 const cleanSource = `export class Greeter {
@@ -33,8 +37,8 @@ const cleanSource = `export class Greeter {
 }
 `
 
-// overLimitSource is one class of 12 ICPs — six branches and six conditions
-// — against the greenfield limit of 10.
+// overLimitSource is one class of 18 ICPs — six branches and twelve
+// conditions — against the greenfield limit of 10.
 const overLimitSource = `export class OrderService {
   price(a: number, b: number, c: number): number {
     if (a > 0 && b > 0) { return a + b; }
@@ -102,9 +106,9 @@ func TestCheckCleanProject(t *testing.T) {
 
 	stdout, stderr, code := runCdd(t, dir, "check")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
-	assert.NotContains(t, stdout, "src/greeter.ts", "a unit within its limit is not listed")
-	assert.Contains(t, stdout, "0 over limit")
-	assert.NotContains(t, stdout, overLimitMark)
+	assert.Contains(t, stdout, "cdd check: PASS violations=0 units=1")
+	assert.NotContains(t, stdout, unitLabel, "a unit within its limit is not listed")
+	assert.NotContains(t, stdout, violationLabel)
 	assert.Empty(t, stderr)
 }
 
@@ -115,9 +119,9 @@ func TestCheckAllListsTheUnitsWithinTheirLimit(t *testing.T) {
 
 	stdout, stderr, code := runCdd(t, dir, "check", "--all")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
-	assert.Contains(t, stdout, "src/greeter.ts")
-	assert.Contains(t, stdout, "Greeter")
-	assert.Contains(t, stdout, "0 over limit")
+	assert.Contains(t, stdout, unitLabel+" src/greeter.ts:1:8 class Greeter icp=1 limit=10\n")
+	assert.Contains(t, stdout, "  metrics: ")
+	assert.NotContains(t, stdout, violationLabel)
 }
 
 func TestCheckOverLimitUnitBlocks(t *testing.T) {
@@ -127,9 +131,9 @@ func TestCheckOverLimitUnitBlocks(t *testing.T) {
 
 	stdout, stderr, code := runCdd(t, dir, "check")
 	assert.Equal(t, 1, code)
-	assert.Contains(t, stdout, overLimitMark)
-	assert.Contains(t, stdout, "OrderService")
-	assert.Contains(t, stdout, "1 over limit")
+	assert.Contains(t, stdout, "cdd check: FAIL violations=1 units=1")
+	assert.Contains(t, stdout, violationLabel+" src/order-service.ts:1:8 class OrderService icp=18 limit=10 over=8\n")
+	assert.Contains(t, stdout, "  metrics: condition=12 code_branch=6\n")
 	assert.Empty(t, stderr, "the report already names the violation")
 }
 
@@ -143,7 +147,7 @@ func TestCheckEnforcementVariants(t *testing.T) {
 		stdout, stderr, code := runCdd(t, dir, "check")
 		require.Equal(t, 0, code, "stderr: %s", stderr)
 		assert.Contains(t, stdout, "OrderService")
-		assert.Contains(t, stdout, "1 over limit")
+		assert.Contains(t, stdout, "violations=1")
 		assert.Contains(t, stderr, "warning:", "a limit of 10 is outside the legacy band")
 	})
 	t.Run("strict_on_new_only says it is not enforced", func(t *testing.T) {
@@ -154,8 +158,9 @@ func TestCheckEnforcementVariants(t *testing.T) {
 
 		stdout, _, code := runCdd(t, dir, "check")
 		assert.Equal(t, 0, code)
+		assert.Contains(t, stdout, "warning: ")
 		assert.Contains(t, stdout, "not enforced yet")
-		assert.Contains(t, stdout, "1 over limit")
+		assert.Contains(t, stdout, "violations=1")
 	})
 }
 
@@ -205,7 +210,7 @@ func TestCheckTimeoutReportsPartially(t *testing.T) {
 
 	stdout, stderr, code := runCdd(t, dir, "check")
 	assert.Equal(t, 2, code)
-	assert.Contains(t, stdout, "partial")
+	assert.Contains(t, stdout, "partial=true")
 	assert.Contains(t, stderr, "timeout")
 }
 
@@ -266,7 +271,7 @@ func TestCheckSyntaxErrorIsAWarning(t *testing.T) {
 
 	stdout, stderr, code := runCdd(t, dir, "check")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "warning: src/broken.ts: ")
 	assert.Contains(t, stdout, "syntax error")
-	assert.Contains(t, stdout, "src/broken.ts")
-	assert.Contains(t, stdout, "0 over limit")
+	assert.Contains(t, stdout, "violations=0")
 }

@@ -176,21 +176,91 @@ func TestMetricsFollowVocabularyOrder(t *testing.T) {
 }
 
 func TestConsoleShapesTheRun(t *testing.T) {
-	out := renderAll(t, config.FormatConsole, fullRun())
-	assert.Contains(t, out, passMark+" src/checkout.ts:1:1  function greet  2.5/10\n")
-	assert.Contains(t, out, failMark+" src/checkout.ts:12:3  class CheckoutService  14.5/10\n")
-	assert.Contains(t, out, "\n    external_coupling 11×0.5=5.5\n", "breakdown of the unit over its limit")
-	assert.NotContains(t, out, "\n    code_branch 2×1=2\n", "a unit within its limit stays on one line")
-	assert.Contains(t, out, "warning: src/checkout.ts: unsupported syntax at 42:7, unit skipped\n")
-	assert.Contains(t, out, "warning: the legacy mode is reported, not enforced yet\n")
-	assert.True(t, strings.HasSuffix(out, "3 units analyzed, 1 over limit, elapsed 1.234s\n"))
-	assert.NotContains(t, out, "partial result")
+	out := render(t, config.FormatConsole, fullRun())
+	assert.True(t, strings.HasPrefix(out,
+		"cdd check: FAIL violations=1 units=3 root=/projects/shop elapsed=1.234s\n"+
+			"warning: the legacy mode is reported, not enforced yet\n"))
+	assert.Contains(t, out,
+		"\nviolation: src/checkout.ts:12:3 class CheckoutService icp=14.5 limit=10 over=4.5\n"+
+			"  metrics: code_branch=6 external_coupling=11x0.5 condition=3\n")
+	assert.NotContains(t, out, "greet", "a unit within its limit is not listed")
+	assert.True(t, strings.HasSuffix(out,
+		"\nwarning: src/checkout.ts: unsupported syntax at 42:7, unit skipped\n"))
+	assert.NotContains(t, out, "partial=")
 }
 
-func TestConsolePartialAnnouncesTheTimeout(t *testing.T) {
+func TestConsoleAllListsEveryUnit(t *testing.T) {
+	out := renderAll(t, config.FormatConsole, fullRun())
+	assert.Contains(t, out,
+		"\nunit: src/checkout.ts:1:1 function greet icp=2.5 limit=10\n"+
+			"  metrics: code_branch=2 external_coupling=1x0.5\n")
+	assert.Contains(t, out,
+		"\nunit: src/money.ts:3:1 function formatMoney icp=2 limit=10\n"+
+			"  metrics: code_branch=1 condition=1\n")
+	assert.Less(t, strings.Index(out, "violation:"), strings.Index(out, "unit:"),
+		"the violations come first")
+}
+
+func TestConsolePassAndPartial(t *testing.T) {
 	out := render(t, config.FormatConsole, partialRun())
-	assert.Contains(t, out, "partial result: timeout elapsed\n")
-	assert.Contains(t, out, "0 units analyzed, 0 over limit, elapsed 1.234s\n")
+	assert.Equal(t, "cdd check: PASS violations=0 units=0 root=/projects/shop elapsed=1.234s partial=true\n", out)
+}
+
+func TestConsoleOrdersViolationsByHowFarOver(t *testing.T) {
+	res := analyze.RunResult{
+		Root: "/projects/shop",
+		Files: []analyze.FileReport{
+			{Path: "src/a.ts", Language: fixtureLanguage, Units: []analyze.UnitReport{
+				overUnit("small", 11, 3), overUnit("tied", 12, 9),
+			}},
+			{Path: "src/b.ts", Language: fixtureLanguage, Units: []analyze.UnitReport{
+				overUnit("worst", 20, 1), overUnit("alsoTied", 12, 4),
+			}},
+		},
+	}
+	assert.Equal(t, []string{"worst", "tied", "alsoTied", "small"}, consoleNames(render(t, config.FormatConsole, res)),
+		"widest gap first, then path, then line")
+}
+
+// consoleNames reads the unit names out of a console report, in the order
+// the records appear.
+func consoleNames(out string) []string {
+	var names []string
+	for line := range strings.SplitSeq(out, "\n") {
+		if fields := strings.Fields(line); len(fields) > 4 && strings.HasSuffix(fields[0], ":") {
+			names = append(names, fields[3])
+		}
+	}
+	return names
+}
+
+// overUnit is a unit of total ICPs over a limit of 10, declared at line.
+func overUnit(name string, total float64, line int) analyze.UnitReport {
+	return analyze.UnitReport{
+		Name: name, Kind: "function", Line: line, Col: 1,
+		Counts: map[config.MetricID]int{config.MetricCondition: int(total)},
+		Scores: map[config.MetricID]float64{config.MetricCondition: total},
+		Total:  total, Limit: 10, Exceeds: true,
+	}
+}
+
+func TestConsoleMetrics(t *testing.T) {
+	branch, condition := string(config.MetricCodeBranch), string(config.MetricCondition)
+	assert.Equal(t, metricsNone, consoleMetrics(nil))
+	assert.Equal(t, metricsNone, consoleMetrics([]Metric{{ID: branch}}), "a metric never seen is left out")
+	assert.Equal(t, branch+"=4", consoleMetrics([]Metric{{ID: branch, Count: 4, Score: 4}}))
+	assert.Equal(t, branch+"=3x0.5", consoleMetrics([]Metric{{ID: branch, Count: 3, Score: 1.5}}))
+	assert.Equal(t, condition+"=2 "+branch+"=4x0.25",
+		consoleMetrics([]Metric{{ID: branch, Count: 4, Score: 1}, {ID: condition, Count: 2, Score: 2}}),
+		"the heaviest metric first")
+	assert.Equal(t, branch+"=2 "+condition+"=2",
+		consoleMetrics([]Metric{{ID: branch, Count: 2, Score: 2}, {ID: condition, Count: 2, Score: 2}}),
+		"an equal score keeps the canonical order")
+}
+
+func TestOverLimit(t *testing.T) {
+	assert.InDelta(t, 4.5, overLimit(Unit{Total: 14.5, Limit: 10}), 0)
+	assert.InDelta(t, -1.0, overLimit(Unit{Total: 9, Limit: 10}), 0)
 }
 
 func TestMarkdownShapesTheRun(t *testing.T) {
