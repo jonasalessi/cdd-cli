@@ -93,6 +93,11 @@ type Request struct {
 	// Languages is the registry; only the languages present in
 	// Config.Metrics are analyzed.
 	Languages []Language
+	// Paths narrows the run to these files and directories, slash-separated
+	// and relative to Root. Empty means the whole tree under Root. A file
+	// named here must exist, belong to a configured language and pass the
+	// include/exclude patterns; a directory is walked like Root would be.
+	Paths []string
 }
 
 // RunResult is the outcome of one run over a project.

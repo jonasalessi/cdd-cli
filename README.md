@@ -158,6 +158,17 @@ unit and compares each one with the limit its file resolves to. It analyzes
 the tree rooted at the configuration file's directory, so a configuration in a
 subdirectory measures that subdirectory alone.
 
+Paths narrow the run to the named files and directories. They are resolved
+from the working directory and must lie under the configuration's directory,
+which the limits and the internal coupling are resolved against. A named file
+must belong to a configured language and pass `include` / `exclude`, so
+asking for a file the run would skip is an error rather than an empty report.
+An editor plugin re-checks the file that was just saved with:
+
+```sh
+cdd check src/order/service.ts --explain --format json
+```
+
 ```
 $ cdd check
 cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
@@ -237,8 +248,9 @@ first line. The `json` and `xml` reports carry the same filter under a
 `filter` field, `violations` or `all`, so a reader knows why a unit is
 missing.
 
-| Flag | What it does |
+| Argument or flag | What it does |
 | --- | --- |
+| `[path...]` | Files or directories to analyze instead of the whole tree. Must be under the configuration's directory. |
 | `--all` | Lists every unit, not only the ones over their limit. |
 | `--explain` | Lists every counted construct of each listed unit with its position and ICPs. |
 | `--format` | Renders the report as `console`, `json`, `xml` or `markdown`, ignoring the configured `reporter.format`. |

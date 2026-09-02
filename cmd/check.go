@@ -31,7 +31,7 @@ func newCheckCmd() *cobra.Command {
 	var all, explain bool
 	var format string
 	c := &cobra.Command{
-		Use:   "check",
+		Use:   "check [path...]",
 		Short: "Measure the project and compare every unit with its limit",
 		Long: `check runs the last two steps of CDD (docs/cdd.md, section 3):
 
@@ -41,6 +41,14 @@ func newCheckCmd() *cobra.Command {
 It reads the configuration named by --config (cdd.config.yaml by default) and
 analyzes the tree rooted at that file's directory, so a configuration in a
 subdirectory measures that subdirectory alone.
+
+Paths narrow the run to the named files and directories, resolved from the
+working directory. They must lie under the configuration's directory, since
+limits and internal coupling are resolved against it. A named file must belong
+to a configured language and pass the include/exclude patterns, so a plugin
+can re-check the file that was just saved:
+
+  cdd check src/order/service.ts --explain --format json
 
 The report lists the units above their limit; --all lists every measured unit.
 The summary counts the whole run either way.
@@ -59,9 +67,9 @@ Exit codes:
   1  a unit is above its limit and the enforcement blocks on it, or the
      configuration could not be read or is invalid
   2  the timeout elapsed; the printed report covers the files analyzed in time`,
-		Args: cobra.NoArgs,
-		RunE: func(c *cobra.Command, _ []string) error {
-			return runCheck(c, configPath, format, report.Options{All: all, Explain: explain})
+		Args: cobra.ArbitraryArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			return runCheck(c, configPath, args, format, report.Options{All: all, Explain: explain})
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "list every unit, not only the ones over their limit")
@@ -72,10 +80,15 @@ Exit codes:
 }
 
 // runCheck implements cdd check: load the configuration, analyze the tree it
-// governs, report the outcome and turn it into an exit code. A non-empty
-// format replaces the configured reporter.format.
-func runCheck(c *cobra.Command, path, format string, opts report.Options) error {
+// governs, or the paths under it, report the outcome and turn it into an
+// exit code. A non-empty format replaces the configured reporter.format.
+func runCheck(c *cobra.Command, path string, args []string, format string, opts report.Options) error {
 	if err := validateFormat(format); err != nil {
+		return err
+	}
+	root := filepath.Dir(path)
+	paths, err := checkPaths(root, args)
+	if err != nil {
 		return err
 	}
 	cfg, err := loadCheckConfig(c, path)
@@ -86,9 +99,10 @@ func runCheck(c *cobra.Command, path, format string, opts report.Options) error 
 		cfg.Reporter.Format = format
 	}
 	res, runErr := analyze.Run(commandContext(c), analyze.Request{
-		Root:      filepath.Dir(path),
+		Root:      root,
 		Config:    cfg,
 		Languages: languages.All(),
+		Paths:     paths,
 	})
 	if runErr != nil && !errors.Is(runErr, analyze.ErrTimeout) {
 		return runErr
@@ -111,6 +125,30 @@ func validateFormat(format string) error {
 		return nil
 	}
 	return fmt.Errorf("--format: %q is not one of %s", format, strings.Join(config.ReporterFormats(), ", "))
+}
+
+// checkPaths turns the paths given on the command line, relative to the
+// working directory, into slash-separated paths relative to root. A path
+// outside root is an error: the run resolves limits and internal coupling
+// against root, so a file elsewhere has no limit to be compared with.
+func checkPaths(root string, args []string) ([]string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]string, 0, len(args))
+	for _, arg := range args {
+		abs, err := filepath.Abs(arg)
+		if err != nil {
+			return nil, err
+		}
+		rel, err := filepath.Rel(absRoot, abs)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("%s is outside %s, the directory of the configuration", arg, root)
+		}
+		paths = append(paths, filepath.ToSlash(rel))
+	}
+	return paths, nil
 }
 
 // loadCheckConfig reads path and validates it against the registry. Errors
