@@ -160,18 +160,42 @@ subdirectory measures that subdirectory alone.
 
 ```
 $ cdd check
-cdd check .
-✓ src/greeter.ts:1:8  class Greeter  1/10
-✗ src/order-service.ts:4:8  class OrderService  16.5/10
-    code_branch 5×1=5
-    condition 10×1=10
-    internal_coupling 1×1=1
-    external_coupling 1×0.5=0.5
-2 units analyzed, 1 over limit, elapsed 1ms
+cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
+
+violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
+  metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
 ```
 
-A unit within its limit stays on one line. A unit over it lists the metrics
-that earned the points, which is where a refactoring starts.
+The report lists the units over their limit and nothing else, worst first,
+because those are the ones to refactor. Each one names where it is, what it
+scored and by how much it is over, and the `metrics` line breaks the score
+down: a bare `condition=10` counts ten conditions at weight 1, while
+`external_coupling=1x0.5` counts one coupling at weight 0.5. The first line
+counts the whole run either way, so `units=2` includes what is not listed.
+
+`--all` adds every unit within its limit, after the violations:
+
+```
+$ cdd check --all
+cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
+
+violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
+  metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
+
+unit: src/greeter.ts:1:8 class Greeter icp=1 limit=10
+  metrics: code_branch=1
+```
+
+A file the analyzer could not read is reported as `warning: <path>: <text>`
+at the end, and a run cut short by the timeout adds `partial=true` to the
+first line. The `json` and `xml` reports carry the same filter under a
+`filter` field, `violations` or `all`, so a reader knows why a unit is
+missing.
+
+| Flag | What it does |
+| --- | --- |
+| `--all` | Lists every unit, not only the ones over their limit. |
+| `--config` | Path to the configuration file. Default `cdd.config.yaml`. |
 
 #### What it reads from the configuration
 
