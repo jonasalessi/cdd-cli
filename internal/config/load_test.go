@@ -39,12 +39,12 @@ func TestParseKeepsPatternOrder(t *testing.T) {
 	doc := `
 version: 1
 metrics:
-  java:
+  alpha:
     ".*/z/.*": {code_branch: 1}
     ".*": {code_branch: 1, condition: 1, inheritance: 1}
     ".*/a/.*": {condition: 2}
 icp-limits:
-  java:
+  alpha:
     ".*/z/.*": 3
     ".*": 10
     ".*/a/.*": 7
@@ -58,12 +58,12 @@ icp-limits:
 			Weights: map[MetricID]float64{MetricCodeBranch: 1, MetricCondition: 1, MetricInheritance: 1},
 		},
 		{Pattern: ".*/a/.*", Weights: map[MetricID]float64{MetricCondition: 2}},
-	}, cfg.Metrics[LangJava])
+	}, cfg.Metrics[langAlpha])
 	assert.Equal(t, PatternLimits{
 		{Pattern: ".*/z/.*", Limit: 3},
 		{Pattern: PatternAll, Limit: 10},
 		{Pattern: ".*/a/.*", Limit: 7},
-	}, cfg.ICPLimits[LangJava])
+	}, cfg.ICPLimits[langAlpha])
 }
 
 func TestParseErrors(t *testing.T) {
@@ -77,17 +77,17 @@ func TestParseErrors(t *testing.T) {
 		{"unknown nested key", "version: 1\nreporter:\n  color: red\n", "field color not found"},
 		{
 			"metrics language is a list",
-			"metrics:\n  java:\n    - code_branch\n",
+			"metrics:\n  alpha:\n    - code_branch\n",
 			"line 3: expected a mapping of patterns",
 		},
-		{"limits language is a scalar", "icp-limits:\n  java: 10\n", "line 2: expected a mapping of patterns"},
+		{"limits language is a scalar", "icp-limits:\n  alpha: 10\n", "line 2: expected a mapping of patterns"},
 		{
 			"duplicate pattern",
-			"metrics:\n  java:\n    \".*\": {code_branch: 1}\n    \".*\": {condition: 1}\n",
+			"metrics:\n  alpha:\n    \".*\": {code_branch: 1}\n    \".*\": {condition: 1}\n",
 			`line 4: pattern ".*" already defined at line 3`,
 		},
-		{"weight is not a number", "metrics:\n  java:\n    \".*\": {code_branch: heavy}\n", "line 3"},
-		{"limit is not a number", "icp-limits:\n  java:\n    \".*\": ten\n", "line 3"},
+		{"weight is not a number", "metrics:\n  alpha:\n    \".*\": {code_branch: heavy}\n", "line 3"},
+		{"limit is not a number", "icp-limits:\n  alpha:\n    \".*\": ten\n", "line 3"},
 		{"timeout is not a duration", "timeout: soon\n", "line 1"},
 		{"version is not a number", "version: one\n", "line 1"},
 	}
@@ -101,10 +101,10 @@ func TestParseErrors(t *testing.T) {
 }
 
 func TestParseNullSections(t *testing.T) {
-	cfg, err := Parse(strings.NewReader("version: 1\nmetrics:\n  java:\nicp-limits:\n  java:\n"))
+	cfg, err := Parse(strings.NewReader("version: 1\nmetrics:\n  alpha:\nicp-limits:\n  alpha:\n"))
 	require.NoError(t, err)
-	assert.Empty(t, cfg.Metrics[LangJava])
-	assert.Empty(t, cfg.ICPLimits[LangJava])
+	assert.Empty(t, cfg.Metrics[langAlpha])
+	assert.Empty(t, cfg.ICPLimits[langAlpha])
 	assert.Nil(t, cfg.Reporter.OutputFile)
 }
 

@@ -15,14 +15,6 @@ const MinMetrics = 3
 // PatternAll matches every file and must open every pattern list.
 const PatternAll = ".*"
 
-// Canonical language ids.
-const (
-	LangGo         Language = "go"
-	LangJava       Language = "java"
-	LangKotlin     Language = "kotlin"
-	LangTypeScript Language = "typescript"
-)
-
 // Canonical metric ids.
 const (
 	MetricCodeBranch        MetricID = "code_branch"
@@ -64,8 +56,6 @@ const RegexPrefix = "regex:"
 // GlobPrefix is the optional, default prefix of an include/exclude entry.
 const GlobPrefix = "glob:"
 
-var languages = []Language{LangGo, LangJava, LangKotlin, LangTypeScript}
-
 var metrics = []MetricID{
 	MetricCodeBranch,
 	MetricCondition,
@@ -75,11 +65,6 @@ var metrics = []MetricID{
 	MetricInheritance,
 	MetricLocalVariable,
 	MetricLambda,
-}
-
-// notApplicable lists, per language, the metrics its analyzer cannot count.
-var notApplicable = map[Language][]MetricID{
-	LangGo: {MetricExceptionHandling, MetricInheritance},
 }
 
 var defaultWeights = map[MetricID]float64{
@@ -109,62 +94,17 @@ var legacyModes = []string{ModeStrictAll, ModeStrictOnNewOnly, ModeBoyScout, Mod
 
 var reporterFormats = []string{FormatConsole, FormatJSON, FormatXML, FormatMarkdown}
 
-var defaultExcludes = map[Language][]string{
-	LangGo:         {"**/*_test.go", "vendor/**"},
-	LangJava:       {"**/src/test/**", "**/build/**", "**/target/**"},
-	LangKotlin:     {"**/src/test/**", "**/build/**", "**/target/**"},
-	LangTypeScript: {"**/*.test.ts", "**/*.spec.ts", "**/*.d.ts", "**/node_modules/**", "**/dist/**"},
-}
-
-// descriptions holds the inline comment written next to each metric weight.
-// The empty language key is the fallback.
-var descriptions = map[MetricID]map[Language]string{
-	MetricCodeBranch: {
-		"":             "if/else, switch case, ternary, loops",
-		LangGo:         "if/else, switch/select, for",
-		LangKotlin:     "if/when, loops, safe calls (?.), elvis (?:)",
-		LangTypeScript: "if/else, switch, ternary, loops, ?. and ??",
-	},
-	MetricCondition: {
-		"":             "&& and || clauses",
-		LangTypeScript: "&&, || and ?? clauses",
-	},
-	MetricExceptionHandling: {
-		"": "try / catch / finally blocks",
-	},
-	MetricInternalCoupling: {
-		"":             "references to project packages",
-		LangJava:       "references to project classes",
-		LangTypeScript: "references to project modules",
-	},
-	MetricExternalCoupling: {
-		"":             "framework / stdlib types",
-		LangJava:       "framework / JDK types",
-		LangTypeScript: "framework / node_modules types",
-	},
-	MetricInheritance: {
-		"":         "extends / implements, per level",
-		LangKotlin: ": Base() / : Iface, per level",
-	},
-	MetricLocalVariable: {
-		"": "locals and fields",
-	},
-	MetricLambda: {
-		"":             "lambdas and method refs",
-		LangGo:         "func literals",
-		LangKotlin:     "lambdas and function refs",
-		LangTypeScript: "arrow functions and callbacks",
-	},
-}
-
-// Languages returns every language id in canonical order.
-func Languages() []Language {
-	return append([]Language(nil), languages...)
-}
-
-// IsLanguage reports whether l is a known language id.
-func IsLanguage(l Language) bool {
-	return slices.Contains(languages, l)
+// descriptions holds the generic inline comment written next to each metric
+// weight; a LanguageSpec may override it with its own wording.
+var descriptions = map[MetricID]string{
+	MetricCodeBranch:        "if/else, switch case, ternary, loops",
+	MetricCondition:         "&& and || clauses",
+	MetricExceptionHandling: "try / catch / finally blocks",
+	MetricInternalCoupling:  "references to project packages",
+	MetricExternalCoupling:  "framework / stdlib types",
+	MetricInheritance:       "extends / implements, per level",
+	MetricLocalVariable:     "locals and fields",
+	MetricLambda:            "lambdas and method refs",
 }
 
 // Metrics returns every metric id in canonical order.
@@ -175,23 +115,6 @@ func Metrics() []MetricID {
 // IsMetric reports whether m is a known metric id.
 func IsMetric(m MetricID) bool {
 	return slices.Contains(metrics, m)
-}
-
-// Applicable returns the metrics the analyzer for l can count, in canonical
-// order. Go has no exceptions and no inheritance.
-func Applicable(l Language) []MetricID {
-	var out []MetricID
-	for _, m := range metrics {
-		if !slices.Contains(notApplicable[l], m) {
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// IsApplicable reports whether m can be counted for l.
-func IsApplicable(l Language, m MetricID) bool {
-	return IsMetric(m) && !slices.Contains(notApplicable[l], m)
 }
 
 // DefaultWeight returns the weight docs/cdd.md suggests for m: 0.5 for
@@ -209,13 +132,10 @@ func DefaultSelection() []MetricID {
 	return append([]MetricID(nil), defaultSelection...)
 }
 
-// MetricDescription returns the inline comment for m in the file of l.
-func MetricDescription(m MetricID, l Language) string {
-	byLang := descriptions[m]
-	if d, ok := byLang[l]; ok {
-		return d
-	}
-	return byLang[""]
+// MetricDescription returns the generic inline comment for m. A language
+// with its own wording overrides it through LanguageSpec.Description.
+func MetricDescription(m MetricID) string {
+	return descriptions[m]
 }
 
 // ProjectTypes returns the allowed project_type values.
@@ -278,10 +198,4 @@ func DefaultTimeout() time.Duration {
 // packages. It is not part of the schema.
 func DefaultScanTimeout() time.Duration {
 	return 4 * time.Second
-}
-
-// DefaultExcludes returns the glob patterns cdd init writes to "exclude" for
-// l: test and generated code.
-func DefaultExcludes(l Language) []string {
-	return append([]string(nil), defaultExcludes[l]...)
 }

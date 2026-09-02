@@ -5,7 +5,7 @@ package config
 
 import "time"
 
-// Language is a canonical language id, see Languages.
+// Language is a canonical language id, see LanguageSpec.
 type Language string
 
 // MetricID is a canonical ICP metric id, see Metrics.

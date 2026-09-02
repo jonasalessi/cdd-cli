@@ -13,10 +13,11 @@ import (
 // given. The caller decides whether to ask the user or to fail.
 var ErrExists = errors.New("file already exists")
 
-// Write renders cfg and writes it to path atomically: the document goes to
-// path + ".tmp" in the same directory and is renamed over the target, so a
-// crash never leaves a half-written configuration.
-func Write(cfg *config.Config, path string, force bool) error {
+// Write renders cfg for the languages in specs and writes it to path
+// atomically: the document goes to path + ".tmp" in the same directory and
+// is renamed over the target, so a crash never leaves a half-written
+// configuration.
+func Write(cfg *config.Config, specs []config.LanguageSpec, path string, force bool) error {
 	if !force {
 		if _, err := os.Stat(path); err == nil {
 			return fmt.Errorf("%s: %w", path, ErrExists)
@@ -24,7 +25,7 @@ func Write(cfg *config.Config, path string, force bool) error {
 			return err
 		}
 	}
-	data, err := config.Render(cfg)
+	data, err := config.Render(cfg, specs)
 	if err != nil {
 		return err
 	}

@@ -48,14 +48,14 @@ func TestQuote(t *testing.T) {
 }
 
 func TestRenderNil(t *testing.T) {
-	_, err := Render(nil)
+	_, err := Render(nil, testSpecs())
 	require.Error(t, err)
 }
 
 func TestRenderGolden(t *testing.T) {
 	for name, cfg := range goldenConfigs() {
 		t.Run(name, func(t *testing.T) {
-			got, err := Render(cfg)
+			got, err := Render(cfg, testSpecs())
 			require.NoError(t, err)
 			path := goldenPath(name)
 			if updateGolden() {
@@ -69,8 +69,8 @@ func TestRenderGolden(t *testing.T) {
 }
 
 func TestRenderLayout(t *testing.T) {
-	cfg := greenfieldJavaKotlin()
-	out, err := Render(cfg)
+	cfg := greenfieldAlphaBeta()
+	out, err := Render(cfg, testSpecs())
 	require.NoError(t, err)
 	s := string(out)
 
@@ -85,9 +85,9 @@ func TestRenderLayout(t *testing.T) {
 	assert.Contains(t, s, "\n    # \".*/adapters/.*\": 8\n    # \".*Dto\\\\.java\": 20\n")
 	assert.Contains(t, s, "# format: The output style. Supported: console, json, xml, markdown")
 
-	java := strings.Index(s, "\n  java:\n")
-	kotlin := strings.Index(s, "\n  kotlin:\n")
-	assert.Greater(t, kotlin, java, "languages in canonical order")
+	alpha := strings.Index(s, "\n  alpha:\n")
+	beta := strings.Index(s, "\n  beta:\n")
+	assert.Greater(t, beta, alpha, "languages in specs order")
 
 	// Pattern order and metric order inside a pattern.
 	lines := strings.Split(s, "\n")
@@ -105,7 +105,7 @@ func TestRenderLayout(t *testing.T) {
 }
 
 func TestRenderEmptyListsAndOutputFile(t *testing.T) {
-	cfg := dogfood()
+	cfg := valid()
 	out := "report.json"
 	cfg.Reporter.OutputFile = &out
 	cfg.InternalCoupling.Packages = nil
@@ -113,7 +113,7 @@ func TestRenderEmptyListsAndOutputFile(t *testing.T) {
 	cfg.Include = []string{"src/**"}
 	cfg.Timeout = 0
 
-	got, err := Render(cfg)
+	got, err := Render(cfg, testSpecs())
 	require.NoError(t, err)
 	s := string(got)
 	assert.Contains(t, s, "\n  outputFile: \"report.json\"\n")
@@ -126,11 +126,11 @@ func TestRenderEmptyListsAndOutputFile(t *testing.T) {
 }
 
 func TestRenderLimitExamplesFollowFirstLanguage(t *testing.T) {
-	got, err := Render(legacyGoTypeScript())
+	got, err := Render(legacyGammaDelta(), testSpecs())
 	require.NoError(t, err)
 	s := string(got)
 	assert.Equal(t, 1, strings.Count(s, `# ".*/adapters/.*": 8`), "one example, under the first language")
-	assert.NotContains(t, s, "Dto", "the java DTO example is not shown for go/typescript")
+	assert.NotContains(t, s, "Dto", "the DTO example belongs to alpha, which is not configured")
 }
 
 func TestFormatList(t *testing.T) {
@@ -140,11 +140,21 @@ func TestFormatList(t *testing.T) {
 }
 
 func TestRenderSkipsUnknownLanguages(t *testing.T) {
-	cfg := dogfood()
+	cfg := valid()
 	cfg.Metrics["rust"] = PatternWeights{{Pattern: PatternAll}}
-	got, err := Render(cfg)
+	got, err := Render(cfg, testSpecs())
 	require.NoError(t, err)
 	assert.NotContains(t, string(got), "rust")
+}
+
+func TestRenderFollowsSpecsOrder(t *testing.T) {
+	cfg := greenfieldAlphaBeta()
+	reversed := []LanguageSpec{betaSpec(), alphaSpec()}
+	got, err := Render(cfg, reversed)
+	require.NoError(t, err)
+	s := string(got)
+	assert.Less(t, strings.Index(s, "\n  beta:\n"), strings.Index(s, "\n  alpha:\n"))
+	assert.NotContains(t, s, `# ".*Dto\\.java": 20`, "the limit examples follow the first rendered language")
 }
 
 func indexOf(lines []string, want string) int {

@@ -1,6 +1,7 @@
 // Package detect discovers, before any configuration exists, which languages
-// a project contains and which package prefixes are internal to it. cdd init
-// uses the result to pre-fill its prompts.
+// a project contains. cdd init uses the result to pre-fill its prompts. The
+// walk is generic: which extensions belong to which language comes from the
+// specs the caller passes in.
 package detect
 
 import (
@@ -27,13 +28,11 @@ var skipDirs = map[string]bool{
 	"out":          true,
 }
 
-// extensions is the only language-specific data kept outside config: the
-// file extensions each analyzer would read.
-var extensions = map[config.Language][]string{
-	config.LangGo:         {".go"},
-	config.LangJava:       {".java"},
-	config.LangKotlin:     {".kt", ".kts"},
-	config.LangTypeScript: {".ts", ".tsx", ".mts", ".cts"},
+// SkipDir reports whether a directory called name is never worth scanning:
+// VCS metadata, dependencies and build output. Package detection shares it
+// so every walk of a project tree skips the same directories.
+func SkipDir(name string) bool {
+	return skipDirs[name]
 }
 
 // Detected is the result of Languages: how many source files were counted
@@ -45,25 +44,26 @@ type Detected struct {
 	Elapsed   time.Duration
 }
 
-// Languages returns the detected languages in canonical order.
-func (d Detected) Languages() []config.Language {
+// Languages returns the detected languages in specs order.
+func (d Detected) Languages(specs []config.LanguageSpec) []config.Language {
 	var out []config.Language
-	for _, lang := range config.Languages() {
-		if d.Counts[lang] > 0 {
-			out = append(out, lang)
+	for _, spec := range specs {
+		if d.Counts[spec.ID] > 0 {
+			out = append(out, spec.ID)
 		}
 	}
 	return out
 }
 
-// Languages counts source files per language under root, skipping skipDirs.
-// The caller bounds the walk through ctx; when the deadline expires the
-// partial counts come back with Truncated set and a nil error, because a
-// cut-short scan is still usable.
-func Languages(ctx context.Context, root string) (Detected, error) {
+// Languages counts source files per language under root, skipping SkipDir
+// directories; a file belongs to the spec that lists its extension. The
+// caller bounds the walk through ctx; when the deadline expires the partial
+// counts come back with Truncated set and a nil error, because a cut-short
+// scan is still usable.
+func Languages(ctx context.Context, root string, specs []config.LanguageSpec) (Detected, error) {
 	start := time.Now()
 	d := Detected{Counts: map[config.Language]int{}}
-	byExt := extensionIndex()
+	byExt := extensionIndex(specs)
 	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -72,7 +72,7 @@ func Languages(ctx context.Context, root string) (Detected, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if path != root && skipDirs[entry.Name()] {
+			if path != root && SkipDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -93,13 +93,12 @@ func Languages(ctx context.Context, root string) (Detected, error) {
 	return d, nil
 }
 
-// extensionIndex inverts extensions into extension -> language for the
-// languages the config vocabulary knows.
-func extensionIndex() map[string]config.Language {
+// extensionIndex inverts the specs into extension -> language.
+func extensionIndex(specs []config.LanguageSpec) map[string]config.Language {
 	idx := make(map[string]config.Language)
-	for _, lang := range config.Languages() {
-		for _, ext := range extensions[lang] {
-			idx[ext] = lang
+	for _, spec := range specs {
+		for _, ext := range spec.Extensions {
+			idx[strings.ToLower(ext)] = spec.ID
 		}
 	}
 	return idx
