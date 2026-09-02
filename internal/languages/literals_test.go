@@ -21,7 +21,15 @@ import (
 var moduleRoot = filepath.Join("..", "..")
 
 // skippedDirs are never walked: build output, fixtures and dependencies.
-var skippedDirs = map[string]bool{".git": true, "bin": true, "testdata": true, "vendor": true}
+// Hidden directories are skipped as well, so a nested checkout under
+// .claude/ or an editor's cache does not count as part of the module.
+var skippedDirs = map[string]bool{"bin": true, "testdata": true, "vendor": true}
+
+// skipDir reports whether a directory called name is outside the module's
+// own sources.
+func skipDir(name string) bool {
+	return skippedDirs[name] || strings.HasPrefix(name, ".")
+}
 
 // forbiddenLiterals is every id of the vocabulary: spelled out anywhere but
 // vocabulary.go and the language spec files, it is a second copy of the
@@ -78,7 +86,7 @@ func TestLiterals(t *testing.T) {
 			return err
 		}
 		if entry.IsDir() {
-			if skippedDirs[entry.Name()] {
+			if skipDir(entry.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -182,6 +190,11 @@ func TestLiteralsHelpers(t *testing.T) {
 	require.True(t, languageDir("internal/analyze/internal/jvm/jvm.go"))
 	require.False(t, languageDir("internal/analyze/analyze.go"))
 	require.False(t, languageDir("internal/prompt/init_form.go"))
+
+	require.True(t, skipDir(".git"))
+	require.True(t, skipDir(".claude"))
+	require.True(t, skipDir("testdata"))
+	require.False(t, skipDir("internal"))
 
 	_, err := os.Stat(filepath.Join(moduleRoot, "go.mod"))
 	require.NoError(t, err, "moduleRoot must be the repository root")
