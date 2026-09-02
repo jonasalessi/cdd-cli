@@ -11,7 +11,7 @@ Root: `/projects/shop`
 
 Metrics:
 
-- `greet` — code_branch 2×1=2, condition 0, external_coupling 1×0.5=0.5
+- `greet` — code_branch 2×1=2, external_coupling 1×0.5=0.5
 - `CheckoutService` — code_branch 6×1=6, condition 3×1=3, external_coupling 11×0.5=5.5
 
 Warnings:

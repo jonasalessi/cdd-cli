@@ -164,16 +164,36 @@ func TestMarkdownSkippedFile(t *testing.T) {
 	assert.NotContains(t, out, "| Unit |")
 }
 
-func TestMarkdownUnitWithoutMetrics(t *testing.T) {
-	res := analyze.RunResult{
-		Root: "/projects/shop",
-		Files: []analyze.FileReport{{
-			Path:     "src/empty.ts",
-			Language: fixtureLanguage,
-			Units:    []analyze.UnitReport{{Name: "noop", Kind: "function", Line: 1, Col: 1, Limit: 10}},
-		}},
+func TestMarkdownListsOnlyCountedMetrics(t *testing.T) {
+	unit := func(counts map[config.MetricID]int) analyze.UnitReport {
+		return analyze.UnitReport{
+			Name: "noop", Kind: "function", Line: 1, Col: 1, Limit: 10,
+			Counts: counts,
+			Scores: map[config.MetricID]float64{config.MetricCodeBranch: 0, config.MetricCondition: 2},
+		}
 	}
-	assert.Contains(t, render(t, config.FormatMarkdown, res), "- `noop` — no metric enabled\n")
+	res := func(u analyze.UnitReport) analyze.RunResult {
+		return analyze.RunResult{
+			Root: "/projects/shop",
+			Files: []analyze.FileReport{{
+				Path:     "src/empty.ts",
+				Language: fixtureLanguage,
+				Units:    []analyze.UnitReport{u},
+			}},
+		}
+	}
+	t.Run("a unit that scored on nothing reads none", func(t *testing.T) {
+		out := render(t, config.FormatMarkdown, res(unit(nil)))
+		assert.Contains(t, out, "- `noop` — none\n")
+	})
+	t.Run("a metric that never occurred is left out", func(t *testing.T) {
+		out := render(t, config.FormatMarkdown, res(unit(map[config.MetricID]int{
+			config.MetricCodeBranch: 0,
+			config.MetricCondition:  2,
+		})))
+		assert.Contains(t, out, "- `noop` — condition 2×1=2\n")
+		assert.NotContains(t, out, "code_branch")
+	})
 }
 
 func TestXMLShapesTheRun(t *testing.T) {
