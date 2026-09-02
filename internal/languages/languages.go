@@ -27,7 +27,7 @@ func All() []Language {
 		{Spec: golang.Spec()},
 		{Spec: java.Spec()},
 		{Spec: kotlin.Spec()},
-		{Spec: typescript.Spec()},
+		{Spec: typescript.Spec(), NewAnalyzer: typescript.NewAnalyzer},
 	}
 }
 
