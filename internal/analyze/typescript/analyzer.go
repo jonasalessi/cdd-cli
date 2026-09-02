@@ -24,6 +24,7 @@ const syntaxError = "syntax error"
 // safe for concurrent use, so the pipeline builds one analyzer per worker
 // and closes it when the worker exits.
 type analyzer struct {
+	prefixes []string
 	grammars *grammars
 	parser   *ts.Parser
 	cursor   *ts.TreeCursor
@@ -34,8 +35,12 @@ type analyzer struct {
 
 // NewAnalyzer returns a TypeScript analyzer. The returned value holds
 // native resources and implements io.Closer; the pipeline must close it.
-func NewAnalyzer(_ analyze.Options) analyze.Analyzer {
-	return &analyzer{grammars: newGrammars(), parser: ts.NewParser()}
+func NewAnalyzer(opts analyze.Options) analyze.Analyzer {
+	return &analyzer{
+		prefixes: opts.InternalPrefixes,
+		grammars: newGrammars(),
+		parser:   ts.NewParser(),
+	}
 }
 
 // Close releases the parser and cursor. The tree-sitter binding installs no
@@ -71,10 +76,11 @@ func (a *analyzer) Analyze(ctx context.Context, path string, src []byte) (analyz
 	if root.HasError() {
 		return analyze.FileResult{Warnings: []string{syntaxWarning(path, root)}}, nil
 	}
+	mods := modules(g, root, src, a.prefixes)
 	decls := units(g, root, src)
 	out := make([]analyze.Unit, 0, len(decls))
 	for i := range decls {
-		out = append(out, a.measure(g, &decls[i], src))
+		out = append(out, a.measure(g, &decls[i], mods, src))
 	}
 	return analyze.FileResult{Units: out}, nil
 }
@@ -138,10 +144,11 @@ func timeoutMicros(d time.Duration) uint64 {
 	return 1
 }
 
-// measure counts one unit.
-func (a *analyzer) measure(g *grammar, d *unitDecl, src []byte) analyze.Unit {
+// measure counts one unit and attributes the file's imports to it.
+func (a *analyzer) measure(g *grammar, d *unitDecl, mods []module, src []byte) analyze.Unit {
 	c := newCounter(g, src, d)
 	walk(a.treeCursor(&d.node), &d.node, c.visit)
+	c.countCoupling(mods)
 	return analyze.Unit{Name: d.name, Kind: d.kind, Line: d.line, Col: d.col, Counts: c.counts}
 }
 

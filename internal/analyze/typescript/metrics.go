@@ -27,6 +27,9 @@ type counter struct {
 	// consumed holds the logical binary expressions already folded into an
 	// enclosing clause chain, so a nested `&&` is never counted twice.
 	consumed map[uintptr]bool
+	// refs are the identifiers the unit mentions, used to attribute the
+	// file's imports to the units that actually reference them.
+	refs map[string]struct{}
 	// skipDeclarator is the unit's own declarator, which is not one of its
 	// local variables; skipLambda is the unit's own function body, which is
 	// not one of its lambdas.
@@ -41,6 +44,7 @@ func newCounter(g *grammar, src []byte, d *unitDecl) *counter {
 		src:      src,
 		counts:   zeroCounts(),
 		consumed: map[uintptr]bool{},
+		refs:     map[string]struct{}{},
 	}
 	if g.kindOf(&d.node) == kindVariableDeclarator {
 		c.skipDeclarator = d.node.Id()
@@ -90,7 +94,7 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 }
 
 // countDeclaration charges the inheritance, local-variable and lambda
-// metrics.
+// metrics, and records the identifiers the unit mentions.
 //
 // A local variable is one declarator, so `const {a, b} = x` is one and
 // `let b = 2, c = 3` is two. A `for` initialiser holds declarators and
@@ -116,6 +120,8 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 		if n.Id() != c.skipLambda {
 			c.counts[config.MetricLambda]++
 		}
+	case kindIdentifier, kindTypeIdentifier, kindShorthandPropertyIdentifier:
+		c.refs[n.Utf8Text(c.src)] = struct{}{}
 	}
 }
 

@@ -1,0 +1,79 @@
+package typescript
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/jonasalessi/cdd-cli/internal/config"
+)
+
+// appPrefix is the configured internal prefix of the coupling fixture.
+const appPrefix = "@app/"
+
+// TestCoupling pins FR-6: imports are file-level, coupling is per unit, and
+// a module is charged to a unit only when the unit mentions one of its
+// bindings. The expected numbers are written next to each unit in the
+// fixture.
+func TestCoupling(t *testing.T) {
+	res := analyzeFixture(t, "coupling.ts", appPrefix)
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit               string
+		internal, external int
+	}{
+		{"UsesInternal", 2, 1},
+		{"usesExternal", 1, 3},
+		{"usesBoth", 2, 1},
+		{"Wrapper", 3, 1},
+		{"renderer", 1, 3},
+		{"Untouched", 1, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			u := unitNamed(t, res, c.unit)
+			requireCount(t, u, config.MetricInternalCoupling, c.internal)
+			requireCount(t, u, config.MetricExternalCoupling, c.external)
+		})
+	}
+}
+
+// TestCouplingInJSX checks that a component referenced only from JSX still
+// counts as a use of the module it comes from.
+func TestCouplingInJSX(t *testing.T) {
+	res := analyzeFixture(t, "component.tsx")
+	requireCount(t, unitNamed(t, res, "Panel"), config.MetricInternalCoupling, 1)
+}
+
+// TestIsInternal covers the specifier classification on its own.
+func TestIsInternal(t *testing.T) {
+	prefixes := []string{appPrefix, "~/"}
+	cases := []struct {
+		spec string
+		want bool
+	}{
+		{"./repo", true},
+		{"../repo", true},
+		{"/abs/repo", true},
+		{".", true},
+		{"..", true},
+		{"@app/users", true},
+		{"~/lib", true},
+		{"@apple/pie", false},
+		{"node:fs", false},
+		{"react", false},
+		{"lodash/fp", false},
+		{"", false},
+	}
+	for _, c := range cases {
+		t.Run(c.spec, func(t *testing.T) {
+			require.Equal(t, c.want, isInternal(c.spec, prefixes))
+		})
+	}
+}
+
+// TestIsInternalIgnoresEmptyPrefix guards against an empty configured
+// prefix turning every module internal.
+func TestIsInternalIgnoresEmptyPrefix(t *testing.T) {
+	require.False(t, isInternal("react", []string{""}))
+}

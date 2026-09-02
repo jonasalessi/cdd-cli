@@ -132,12 +132,12 @@ func parseWith(t *testing.T, g *grammar, src []byte) *ts.Tree {
 // cursor that is never closed leaks on the C heap; running the loop under
 // -race and watching it stay correct is the cheap guard against that.
 func TestReanalyzeDoesNotLeak(t *testing.T) {
-	a := newTestAnalyzer(t)
-	src := readFixture(t, "units.ts")
+	a := newTestAnalyzer(t, appPrefix)
+	src := readFixture(t, "coupling.ts")
 	for range 1000 {
-		res, err := a.Analyze(context.Background(), "units.ts", src)
+		res, err := a.Analyze(context.Background(), "coupling.ts", src)
 		require.NoError(t, err)
-		require.Len(t, res.Units, 15)
+		require.Len(t, res.Units, 6)
 	}
 }
 

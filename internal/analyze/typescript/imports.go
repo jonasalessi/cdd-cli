@@ -1,0 +1,175 @@
+package typescript
+
+import (
+	"strings"
+
+	ts "github.com/tree-sitter/go-tree-sitter"
+
+	"github.com/jonasalessi/cdd-cli/internal/config"
+)
+
+// module is one module a file imports, with the import statements that name
+// the same specifier merged into a single entry.
+type module struct {
+	specifier string
+	// bindings are the local names the import introduces: the default
+	// name, the named imports under their alias, and the namespace name.
+	bindings []string
+	// internal says which coupling metric the module is charged to.
+	internal bool
+	// sideEffect marks `import "x"`, which introduces no binding and is
+	// therefore charged to every unit of the file.
+	sideEffect bool
+}
+
+// modules returns the modules imported by the file, in source order (FR-6).
+//
+// Type-only imports count exactly like value imports: `import type { X }`
+// and `import { type X }` are dependencies on the same module. Re-exports
+// (`export … from "x"`) and dynamic `import()` are not import statements
+// and contribute nothing. `import x = require("y")` is not recognized.
+func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module {
+	var out []module
+	index := map[string]int{}
+	for _, child := range namedChildren(root) {
+		n := child
+		if g.kindOf(&n) != kindImportStatement {
+			continue
+		}
+		spec := specifier(g, &n, src)
+		if spec == "" {
+			continue
+		}
+		at, ok := index[spec]
+		if !ok {
+			at = len(out)
+			index[spec] = at
+			out = append(out, module{specifier: spec, internal: isInternal(spec, prefixes)})
+		}
+		bindings, sideEffect := importBindings(g, &n, src)
+		out[at].bindings = append(out[at].bindings, bindings...)
+		out[at].sideEffect = out[at].sideEffect || sideEffect
+	}
+	return out
+}
+
+// specifier returns the unquoted module specifier of an import statement.
+func specifier(g *grammar, n *ts.Node, src []byte) string {
+	raw := text(n.ChildByFieldId(g.fields.source), src)
+	if len(raw) < 2 {
+		return ""
+	}
+	return raw[1 : len(raw)-1]
+}
+
+// importBindings returns the local names an import statement introduces and
+// whether it is a side-effect import, which introduces none.
+func importBindings(g *grammar, n *ts.Node, src []byte) (names []string, sideEffect bool) {
+	for _, child := range namedChildren(n) {
+		clause := child
+		if g.kindOf(&clause) != kindImportClause {
+			continue
+		}
+		names = append(names, clauseBindings(g, &clause, src)...)
+	}
+	return names, len(names) == 0
+}
+
+// clauseBindings collects the default name, the namespace name and the
+// named imports of one import clause. A named import is bound under its
+// alias when it has one: `{ a as b }` introduces b.
+func clauseBindings(g *grammar, clause *ts.Node, src []byte) []string {
+	var names []string
+	for _, child := range namedChildren(clause) {
+		n := child
+		switch g.kindOf(&n) {
+		case kindIdentifier:
+			names = append(names, text(&n, src))
+		case kindNamespaceImport:
+			if id := firstNamedChild(&n); id != nil {
+				names = append(names, text(id, src))
+			}
+		case kindNamedImports:
+			names = append(names, specifierBindings(g, &n, src)...)
+		}
+	}
+	return names
+}
+
+// specifierBindings collects the local names of a `{ … }` import list.
+func specifierBindings(g *grammar, list *ts.Node, src []byte) []string {
+	var names []string
+	for _, child := range namedChildren(list) {
+		spec := child
+		if g.kindOf(&spec) != kindImportSpecifier {
+			continue
+		}
+		local := spec.ChildByFieldId(g.fields.alias)
+		if local == nil {
+			local = spec.ChildByFieldId(g.fields.name)
+		}
+		if name := text(local, src); name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// isInternal classifies a module specifier. Relative and root-anchored
+// specifiers are always internal; a bare specifier is internal when it
+// starts with one of the configured internal prefixes ("@app/" matching
+// "@app/users"); everything else, "node:fs" and "lodash/fp" included, is
+// external.
+func isInternal(spec string, prefixes []string) bool {
+	if isRelative(spec) {
+		return true
+	}
+	for _, p := range prefixes {
+		if p != "" && strings.HasPrefix(spec, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// isRelative reports whether spec points inside the project by path.
+func isRelative(spec string) bool {
+	return spec == "." || spec == ".." ||
+		strings.HasPrefix(spec, "./") ||
+		strings.HasPrefix(spec, "../") ||
+		strings.HasPrefix(spec, "/")
+}
+
+// countCoupling charges the unit for the modules it uses. CDD counts
+// "direct references to domain classes" and "external library units" per
+// unit (docs/cdd.md section 2), but imports are file-level, so a module is
+// charged to a unit when the unit mentions one of the module's bindings,
+// once per module however many bindings or mentions there are. A
+// side-effect import binds nothing and is charged to every unit of the
+// file.
+//
+// The reference test is by name only: a local declaration that shadows an
+// imported name makes the unit look like a user of that module.
+func (c *counter) countCoupling(mods []module) {
+	for i := range mods {
+		m := &mods[i]
+		if !m.sideEffect && !c.uses(m.bindings) {
+			continue
+		}
+		if m.internal {
+			c.counts[config.MetricInternalCoupling]++
+			continue
+		}
+		c.counts[config.MetricExternalCoupling]++
+	}
+}
+
+// uses reports whether the unit mentions any of the given bindings.
+func (c *counter) uses(bindings []string) bool {
+	for _, b := range bindings {
+		if _, ok := c.refs[b]; ok {
+			return true
+		}
+	}
+	return false
+}
