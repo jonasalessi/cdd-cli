@@ -186,6 +186,51 @@ unit: src/greeter.ts:1:8 class Greeter icp=1 limit=10
   metrics: code_branch=1
 ```
 
+`--explain` details whatever is listed, adding one line per counted construct
+under the `metrics` line — where it is and what it contributed:
+
+```
+$ cdd check --explain
+cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
+
+violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
+  metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
+  icp: 1:1-1:34 external_coupling +0.5
+  icp: 5:5-7:6 code_branch +1
+  icp: 5:9-5:14 condition +1
+```
+
+Each line reads `<line>:<col>-<end_line>:<end_col> <metric> +<icps>`. The range
+is 1-based and its end points just past the construct, the way an editor
+selects text. A unit whose constructs the analyzer could not locate gains no
+line, so `--explain` never invents a position.
+
+The two filters are independent: `--all` chooses which units are listed,
+`--explain` details the ones that are. An editor plugin wants both.
+
+In `json` and `xml` the detail is per unit rather than per line, and the
+top-level `explain` field says whether it was asked for at all:
+
+```json
+{
+  "unit": "OrderService",
+  "metric": "code_branch",
+  "line": 5, "col": 5, "end_line": 7, "end_col": 6,
+  "count": 1, "score": 1
+}
+```
+
+`unit` repeats the name of the owning unit so a plugin can flatten every
+occurrence of a file into one list. Without `--explain` the `occurrences` key
+is absent; with it, a unit that counted nothing carries an empty list. This is
+the contract the IntelliJ and VS Code plugins read, so they run
+
+```sh
+cdd check --all --explain
+```
+
+with `format: json` and turn each occurrence into an inline hint.
+
 A file the analyzer could not read is reported as `warning: <path>: <text>`
 at the end, and a run cut short by the timeout adds `partial=true` to the
 first line. The `json` and `xml` reports carry the same filter under a
@@ -195,6 +240,7 @@ missing.
 | Flag | What it does |
 | --- | --- |
 | `--all` | Lists every unit, not only the ones over their limit. |
+| `--explain` | Lists every counted construct of each listed unit with its position and ICPs. |
 | `--config` | Path to the configuration file. Default `cdd.config.yaml`. |
 
 #### What it reads from the configuration
