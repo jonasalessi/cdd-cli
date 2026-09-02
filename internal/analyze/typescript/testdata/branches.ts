@@ -52,3 +52,20 @@ export function branches(v: number, o: { a?: { b: number } }): number {
 
   return t + Number(shallow) + Number(deep);
 }
+
+// Expected total for `optionalCalls`: 4.
+//
+// The grammar gives `?.` an `optional_chain` node in a member access
+// (`a?.b`) and in a subscript access (`a?.[0]`) only. In an optional call
+// the `?.` is an anonymous token of `call_expression`, whose rule is
+// seq(field("function", …), "?.", field("arguments", …)), so it produces no
+// node at all and adds nothing. Every `optional_chain` node is charged
+// whatever its parent; there is simply none to charge for the call itself.
+export function optionalCalls(f: any, o: any): unknown {
+  const a = f?.(); // +0  optional call, no node in the grammar
+  const b = o.f?.(); // +0  plain member access, then an optional call
+  const c = o?.f?.(); // +1  the `?.f` member access only
+  const d = o?.[0]?.(); // +1  the `?.[0]` subscript access only
+  const e = o?.b?.(1)?.[2]; // +2  `?.b` and `?.[2]`, not the `?.(`
+  return [a, b, c, d, e];
+}

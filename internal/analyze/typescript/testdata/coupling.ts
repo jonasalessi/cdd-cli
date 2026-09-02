@@ -1,8 +1,9 @@
 // coupling fixture, analyzed with InternalPrefixes = ["@app/"].
 //
-// internal modules: "./repo", "@app/services", "@app/config", "./polyfill"
+// internal modules: "./repo", "@app/services", "@app/config", "./polyfill",
+//                   "./legacy"
 // external modules: "node:fs/promises", "lodash/fp", "react", "ink",
-//                   "reflect-metadata"
+//                   "reflect-metadata", "node:path"
 import { Repo } from "./repo";
 import { Other } from "./repo"; // same module, counted once per unit
 import { Service } from "@app/services";
@@ -13,6 +14,9 @@ import React from "react";
 import { render as draw } from "ink";
 import "./polyfill"; // internal side effect: charged to every unit
 import "reflect-metadata"; // external side effect: charged to every unit
+// `import x = require("y")` binds one name, exactly like a default import.
+import legacy = require("./legacy"); // internal
+import nodePath = require("node:path"); // external
 
 // internal 2: ./repo, ./polyfill
 // external 1: reflect-metadata
@@ -54,4 +58,11 @@ export const renderer = (): unknown => draw(React.createElement("div"));
 // external 1: reflect-metadata
 export interface Untouched {
   n: number;
+}
+
+// internal 2: ./legacy, ./polyfill
+// external 2: node:path, reflect-metadata
+export function usesRequire(): void {
+  void legacy;
+  void nodePath;
 }

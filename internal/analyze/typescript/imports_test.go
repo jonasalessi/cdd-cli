@@ -28,6 +28,7 @@ func TestCoupling(t *testing.T) {
 		{"Wrapper", 3, 1},
 		{"renderer", 1, 3},
 		{"Untouched", 1, 1},
+		{"usesRequire", 2, 2},
 	}
 	for _, c := range cases {
 		t.Run(c.unit, func(t *testing.T) {

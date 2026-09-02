@@ -27,7 +27,9 @@ type module struct {
 // Type-only imports count exactly like value imports: `import type { X }`
 // and `import { type X }` are dependencies on the same module. Re-exports
 // (`export … from "x"`) and dynamic `import()` are not import statements
-// and contribute nothing. `import x = require("y")` is not recognized.
+// and contribute nothing. `import x = require("y")` is an import statement
+// and is treated exactly like a default import: one binding, classified
+// internal or external by the same rules.
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module {
 	var out []module
 	index := map[string]int{}
@@ -54,12 +56,30 @@ func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module 
 }
 
 // specifier returns the unquoted module specifier of an import statement.
+// `import x = require("y")` carries no source of its own: the grammar hangs
+// the string off the import_require_clause, so the clause is asked when the
+// statement has nothing.
 func specifier(g *grammar, n *ts.Node, src []byte) string {
 	raw := text(n.ChildByFieldId(g.fields.source), src)
+	if raw == "" {
+		raw = text(requireSource(g, n), src)
+	}
 	if len(raw) < 2 {
 		return ""
 	}
 	return raw[1 : len(raw)-1]
+}
+
+// requireSource returns the source string of the statement's
+// import_require_clause, nil when the statement has no such clause.
+func requireSource(g *grammar, n *ts.Node) *ts.Node {
+	for _, child := range namedChildren(n) {
+		clause := child
+		if g.kindOf(&clause) == kindImportRequireClause {
+			return clause.ChildByFieldId(g.fields.source)
+		}
+	}
+	return nil
 }
 
 // importBindings returns the local names an import statement introduces and
@@ -67,12 +87,29 @@ func specifier(g *grammar, n *ts.Node, src []byte) string {
 func importBindings(g *grammar, n *ts.Node, src []byte) (names []string, sideEffect bool) {
 	for _, child := range namedChildren(n) {
 		clause := child
-		if g.kindOf(&clause) != kindImportClause {
-			continue
+		switch g.kindOf(&clause) {
+		case kindImportClause:
+			names = append(names, clauseBindings(g, &clause, src)...)
+		case kindImportRequireClause:
+			if name := requireBinding(g, &clause, src); name != "" {
+				names = append(names, name)
+			}
 		}
-		names = append(names, clauseBindings(g, &clause, src)...)
 	}
 	return names, len(names) == 0
+}
+
+// requireBinding returns the local name `import x = require("y")` binds,
+// which the grammar hangs off the clause as a plain identifier child, the
+// quoted source being the clause's only other named child.
+func requireBinding(g *grammar, clause *ts.Node, src []byte) string {
+	for _, child := range namedChildren(clause) {
+		id := child
+		if g.kindOf(&id) == kindIdentifier {
+			return text(&id, src)
+		}
+	}
+	return ""
 }
 
 // clauseBindings collects the default name, the namespace name and the

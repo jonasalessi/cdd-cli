@@ -67,6 +67,7 @@ const (
 	kindPublicFieldDefinition
 	kindImportStatement
 	kindImportClause
+	kindImportRequireClause
 	kindNamedImports
 	kindImportSpecifier
 	kindNamespaceImport
@@ -116,6 +117,7 @@ var kindNames = [kindCount]string{
 	kindPublicFieldDefinition:         "public_field_definition",
 	kindImportStatement:               "import_statement",
 	kindImportClause:                  "import_clause",
+	kindImportRequireClause:           "import_require_clause",
 	kindNamedImports:                  "named_imports",
 	kindImportSpecifier:               "import_specifier",
 	kindNamespaceImport:               "namespace_import",
@@ -136,13 +138,17 @@ const (
 	fieldDeclaration = "declaration"
 	fieldSource      = "source"
 	fieldType        = "type"
+	// fieldKind holds the `let`, `const` or `var` token of a `for…in` or
+	// `for…of` loop. The token is anonymous, so it never shows up in an
+	// s-expression, but the field is there and reaches it.
+	fieldKind = "kind"
 )
 
 // fields holds the numeric field ids of one grammar.
 type fields struct {
 	operator, left, right, argument uint16
 	name, alias, value              uint16
-	declaration, source             uint16
+	declaration, source, kind       uint16
 }
 
 // grammar is one parse table plus the symbol and field ids resolved from it.
@@ -170,6 +176,7 @@ func newGrammar(lang *ts.Language) *grammar {
 		value:       lang.FieldIdForName(fieldValue),
 		declaration: lang.FieldIdForName(fieldDeclaration),
 		source:      lang.FieldIdForName(fieldSource),
+		kind:        lang.FieldIdForName(fieldKind),
 	}
 	return g
 }
