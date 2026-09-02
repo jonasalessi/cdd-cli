@@ -16,7 +16,8 @@ import (
 // without turning a slow machine into a failure.
 const parseBudget = 30 * time.Second
 
-// syntaxError is the warning a file that does not parse produces.
+// syntaxError opens the warning a file that does not parse produces; the
+// position of the first error follows it.
 const syntaxError = "syntax error"
 
 // analyzer counts the TypeScript ICP constructs of one file at a time. It
@@ -60,7 +61,8 @@ func (a *analyzer) Close() error {
 
 // Analyze parses src with the grammar the extension of path selects and
 // returns the raw counts of every unit it contains. A file that does not
-// parse yields no units and one warning (FR-5).
+// parse yields no units and one warning naming the position of the first
+// syntax error (FR-5).
 func (a *analyzer) Analyze(ctx context.Context, path string, src []byte) (analyze.FileResult, error) {
 	g, err := a.grammars.forPath(path)
 	if err != nil {
@@ -74,7 +76,7 @@ func (a *analyzer) Analyze(ctx context.Context, path string, src []byte) (analyz
 
 	root := tree.RootNode()
 	if root.HasError() {
-		return analyze.FileResult{Warnings: []string{syntaxWarning(path, root)}}, nil
+		return analyze.FileResult{Warnings: []string{syntaxWarning(root)}}, nil
 	}
 	mods := modules(g, root, src, a.prefixes)
 	decls := units(g, root, src)
@@ -162,12 +164,13 @@ func (a *analyzer) treeCursor(n *ts.Node) *ts.TreeCursor {
 	return a.cursor
 }
 
-// syntaxWarning names the file and the position of the first error or
-// missing node, 1-based.
-func syntaxWarning(path string, root *ts.Node) string {
+// syntaxWarning names the position of the first error or missing node,
+// 1-based. The path stays out of it: every caller already attaches the
+// warning to the file it came from.
+func syntaxWarning(root *ts.Node) string {
 	line, col := 1, 1
 	if n := firstErrorNode(root); n != nil {
 		line, col = position(n)
 	}
-	return path + ":" + strconv.Itoa(line) + ":" + strconv.Itoa(col) + ": " + syntaxError
+	return syntaxError + " at " + strconv.Itoa(line) + ":" + strconv.Itoa(col)
 }
