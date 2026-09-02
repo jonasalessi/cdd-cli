@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<report root="/projects/shop" filter="all" partial="false" elapsed_ms="1234">
+  <files>
+    <file path="src/checkout.ts" language="typescript">
+      <units>
+        <unit name="greet" kind="function" line="1" col="1" total="2.5" limit="10" exceeds="false">
+          <metric id="code_branch" count="2" score="2"></metric>
+          <metric id="condition" count="0" score="0"></metric>
+          <metric id="external_coupling" count="1" score="0.5"></metric>
+        </unit>
+        <unit name="CheckoutService" kind="class" line="12" col="3" total="14.5" limit="10" exceeds="true">
+          <metric id="code_branch" count="6" score="6"></metric>
+          <metric id="condition" count="3" score="3"></metric>
+          <metric id="external_coupling" count="11" score="5.5"></metric>
+        </unit>
+      </units>
+      <warnings>
+        <warning>unsupported syntax at 42:7, unit skipped</warning>
+      </warnings>
+    </file>
+    <file path="src/money.ts" language="typescript">
+      <units>
+        <unit name="formatMoney" kind="function" line="3" col="1" total="2" limit="10" exceeds="false">
+          <metric id="code_branch" count="1" score="1"></metric>
+          <metric id="condition" count="1" score="1"></metric>
+        </unit>
+      </units>
+      <warnings></warnings>
+    </file>
+  </files>
+  <warnings>
+    <warning>the legacy mode is reported, not enforced yet</warning>
+  </warnings>
+  <summary units="3" violations="1"></summary>
+</report>

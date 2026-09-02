@@ -12,6 +12,7 @@ import (
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
 	"github.com/jonasalessi/cdd-cli/internal/config"
+	"github.com/jonasalessi/cdd-cli/internal/report"
 )
 
 // checkMetrics is the metric set every fixture enables, so a fixture's ICPs
@@ -101,10 +102,22 @@ func TestCheckCleanProject(t *testing.T) {
 
 	stdout, stderr, code := runCdd(t, dir, "check")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
-	assert.Contains(t, stdout, "src/greeter.ts")
+	assert.NotContains(t, stdout, "src/greeter.ts", "a unit within its limit is not listed")
 	assert.Contains(t, stdout, "0 over limit")
 	assert.NotContains(t, stdout, overLimitMark)
 	assert.Empty(t, stderr)
+}
+
+func TestCheckAllListsTheUnitsWithinTheirLimit(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--all")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "src/greeter.ts")
+	assert.Contains(t, stdout, "Greeter")
+	assert.Contains(t, stdout, "0 over limit")
 }
 
 func TestCheckOverLimitUnitBlocks(t *testing.T) {
@@ -157,7 +170,7 @@ func TestCheckConfigFlagSetsTheRoot(t *testing.T) {
 	writeFixtureFile(t, dir, "outside.ts", strings.ReplaceAll(cleanSource, "Greeter", "OutsideService"))
 	writeFixtureFile(t, dir, "app/src/inside.ts", strings.ReplaceAll(cleanSource, "Greeter", "InsideService"))
 
-	stdout, stderr, code := runCdd(t, dir, "check", "--config", filepath.Join("app", "cdd.config.yaml"))
+	stdout, stderr, code := runCdd(t, dir, "check", "--all", "--config", filepath.Join("app", "cdd.config.yaml"))
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 	assert.Contains(t, stdout, "InsideService")
 	assert.NotContains(t, stdout, "OutsideService", "a file above the configuration is outside the run")
@@ -172,7 +185,7 @@ func TestCheckJSONReportToFile(t *testing.T) {
 		"  outputFile: null", `  outputFile: "report.json"`,
 	)
 
-	stdout, stderr, code := runCdd(t, dir, "check")
+	stdout, stderr, code := runCdd(t, dir, "check", "--all")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 	assert.Contains(t, stdout, "Report written to report.json")
 
@@ -181,6 +194,7 @@ func TestCheckJSONReportToFile(t *testing.T) {
 	var doc map[string]any
 	require.NoError(t, json.Unmarshal(data, &doc), "the report must be valid JSON")
 	assert.Contains(t, string(data), "Greeter")
+	assert.Contains(t, string(data), `"filter": "all"`)
 }
 
 func TestCheckTimeoutReportsPartially(t *testing.T) {
@@ -241,7 +255,8 @@ func TestCommandContextFallsBackToBackground(t *testing.T) {
 
 func TestEmitReportRejectsAnUnknownFormat(t *testing.T) {
 	c, _, _ := silentCmd()
-	assert.ErrorContains(t, emitReport(c, config.Reporter{Format: "toml"}, analyze.RunResult{}), "toml")
+	err := emitReport(c, config.Reporter{Format: "toml"}, analyze.RunResult{}, report.Options{})
+	assert.ErrorContains(t, err, "toml")
 }
 
 func TestCheckSyntaxErrorIsAWarning(t *testing.T) {

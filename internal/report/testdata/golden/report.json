@@ -1,5 +1,6 @@
 {
   "root": "/projects/shop",
+  "filter": "violations",
   "partial": false,
   "elapsed_ms": 1234,
   "files": [
@@ -7,32 +8,6 @@
       "path": "src/checkout.ts",
       "language": "typescript",
       "units": [
-        {
-          "name": "greet",
-          "kind": "function",
-          "line": 1,
-          "col": 1,
-          "total": 2.5,
-          "limit": 10,
-          "exceeds": false,
-          "metrics": [
-            {
-              "metric": "code_branch",
-              "count": 2,
-              "score": 2
-            },
-            {
-              "metric": "condition",
-              "count": 0,
-              "score": 0
-            },
-            {
-              "metric": "external_coupling",
-              "count": 1,
-              "score": 0.5
-            }
-          ]
-        },
         {
           "name": "CheckoutService",
           "kind": "class",
@@ -62,33 +37,6 @@
       ],
       "warnings": [
         "unsupported syntax at 42:7, unit skipped"
-      ]
-    },
-    {
-      "path": "src/money.ts",
-      "language": "typescript",
-      "units": [
-        {
-          "name": "formatMoney",
-          "kind": "function",
-          "line": 3,
-          "col": 1,
-          "total": 2,
-          "limit": 10,
-          "exceeds": false,
-          "metrics": [
-            {
-              "metric": "code_branch",
-              "count": 1,
-              "score": 1
-            },
-            {
-              "metric": "condition",
-              "count": 1,
-              "score": 1
-            }
-          ]
-        }
       ]
     }
   ],

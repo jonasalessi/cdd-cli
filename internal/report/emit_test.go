@@ -14,7 +14,7 @@ import (
 
 func TestEmitToStdout(t *testing.T) {
 	var out bytes.Buffer
-	path, err := Emit(&out, config.Reporter{Format: config.FormatConsole}, fullRun())
+	path, err := Emit(&out, config.Reporter{Format: config.FormatConsole}, fullRun(), Options{})
 	require.NoError(t, err)
 	assert.Empty(t, path, "stdout has no receipt")
 	assert.Equal(t, render(t, config.FormatConsole, fullRun()), out.String())
@@ -23,7 +23,7 @@ func TestEmitToStdout(t *testing.T) {
 func TestEmitToFile(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "cdd-report.json")
 	var out bytes.Buffer
-	path, err := Emit(&out, config.Reporter{Format: config.FormatJSON, OutputFile: &target}, fullRun())
+	path, err := Emit(&out, config.Reporter{Format: config.FormatJSON, OutputFile: &target}, fullRun(), Options{})
 	require.NoError(t, err)
 	assert.Equal(t, target, path)
 	assert.Empty(t, out.String(), "the file takes the report, not stdout")
@@ -41,7 +41,8 @@ func TestEmitTruncatesAnExistingFile(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "cdd-report.txt")
 	require.NoError(t, os.WriteFile(target, bytes.Repeat([]byte("stale\n"), 500), 0o644))
 
-	path, err := Emit(&bytes.Buffer{}, config.Reporter{Format: config.FormatConsole, OutputFile: &target}, fullRun())
+	reporter := config.Reporter{Format: config.FormatConsole, OutputFile: &target}
+	path, err := Emit(&bytes.Buffer{}, reporter, fullRun(), Options{})
 	require.NoError(t, err)
 	assert.Equal(t, target, path)
 
@@ -52,7 +53,8 @@ func TestEmitTruncatesAnExistingFile(t *testing.T) {
 
 func TestEmitMissingParentDirectory(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "missing", "cdd-report.md")
-	_, err := Emit(&bytes.Buffer{}, config.Reporter{Format: config.FormatMarkdown, OutputFile: &target}, fullRun())
+	reporter := config.Reporter{Format: config.FormatMarkdown, OutputFile: &target}
+	_, err := Emit(&bytes.Buffer{}, reporter, fullRun(), Options{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), filepath.Dir(target))
 	assert.NoFileExists(t, target)
@@ -63,13 +65,14 @@ func TestEmitParentIsNotADirectory(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte("x"), 0o644))
 	target := filepath.Join(file, "cdd-report.xml")
 
-	_, err := Emit(&bytes.Buffer{}, config.Reporter{Format: config.FormatXML, OutputFile: &target}, fullRun())
+	reporter := config.Reporter{Format: config.FormatXML, OutputFile: &target}
+	_, err := Emit(&bytes.Buffer{}, reporter, fullRun(), Options{})
 	require.Error(t, err)
 }
 
 func TestEmitUnknownFormatWritesNothing(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "cdd-report.out")
-	_, err := Emit(&bytes.Buffer{}, config.Reporter{Format: "yaml", OutputFile: &target}, fullRun())
+	_, err := Emit(&bytes.Buffer{}, config.Reporter{Format: "yaml", OutputFile: &target}, fullRun(), Options{})
 	require.Error(t, err)
 	assert.NoFileExists(t, target, "an unknown format never creates the file")
 }
@@ -80,6 +83,7 @@ func TestEmitUnwritableFile(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
 	target := filepath.Join(dir, "cdd-report.txt")
-	_, err := Emit(&bytes.Buffer{}, config.Reporter{Format: config.FormatConsole, OutputFile: &target}, fullRun())
+	reporter := config.Reporter{Format: config.FormatConsole, OutputFile: &target}
+	_, err := Emit(&bytes.Buffer{}, reporter, fullRun(), Options{})
 	require.Error(t, err)
 }

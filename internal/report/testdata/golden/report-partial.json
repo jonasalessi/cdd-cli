@@ -1,5 +1,6 @@
 {
   "root": "/projects/shop",
+  "filter": "violations",
   "partial": true,
   "elapsed_ms": 1234,
   "files": [],
