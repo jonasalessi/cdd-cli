@@ -36,7 +36,6 @@ func TestGrammarSelection(t *testing.T) {
 			require.Len(t, res.Units, c.wantUnits)
 			if c.wantUnits == 0 {
 				require.Len(t, res.Warnings, 1)
-				require.Contains(t, res.Warnings[0], c.path+":")
 				require.Contains(t, res.Warnings[0], syntaxError)
 				return
 			}
@@ -45,12 +44,12 @@ func TestGrammarSelection(t *testing.T) {
 	}
 }
 
-// TestSyntaxError pins FR-5: no units, one warning naming the file and the
-// first error position.
+// TestSyntaxError pins FR-5: no units, one warning naming the first error
+// position and no file path, which the pipeline already carries.
 func TestSyntaxError(t *testing.T) {
 	res := analyzeFixture(t, "broken.ts")
 	require.Empty(t, res.Units)
-	require.Equal(t, []string{"broken.ts:2:3: " + syntaxError}, res.Warnings)
+	require.Equal(t, []string{syntaxError + " at 2:3"}, res.Warnings)
 }
 
 // TestExtensions checks the grammar table, including the extensions that
