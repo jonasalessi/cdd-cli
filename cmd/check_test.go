@@ -261,6 +261,53 @@ func TestCheckJSONReportToFile(t *testing.T) {
 	assert.Contains(t, string(data), `"filter": "all"`)
 }
 
+// TestCheckFormatOverridesTheConfiguredFormat covers --format: the
+// configuration says console, the flag says json, and json wins.
+func TestCheckFormatOverridesTheConfiguredFormat(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--all", "--format", "json")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(stdout), &doc), "the report must be valid JSON: %s", stdout)
+	assert.Contains(t, stdout, "Greeter")
+	assert.NotContains(t, stdout, unitLabel, "the console layout must not leak into the json report")
+}
+
+// TestCheckFormatKeepsTheConfiguredOutputFile: --format changes only the
+// format; a configured outputFile still receives the report.
+func TestCheckFormatKeepsTheConfiguredOutputFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	editConfig(t, dir,
+		"  format: console", "  format: json",
+		"  outputFile: null", `  outputFile: "report.md"`,
+	)
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--all", "--format", "markdown")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "Report written to report.md")
+
+	data, err := os.ReadFile(filepath.Join(dir, "report.md"))
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(string(data), "# cdd check\n"), "expected a markdown report, got: %s", data)
+	assert.Contains(t, string(data), "Greeter")
+}
+
+func TestCheckFormatRejectsAnUnknownValue(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--format", "yaml")
+	assert.Equal(t, 1, code)
+	assert.Empty(t, stdout, "nothing must be analyzed when the flag is unusable")
+	assert.Contains(t, stderr, `--format: "yaml" is not one of console, json, xml, markdown`)
+}
+
 func TestCheckTimeoutReportsPartially(t *testing.T) {
 	dir := t.TempDir()
 	writeTSFixture(t, dir)

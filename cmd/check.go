@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -28,6 +29,7 @@ const (
 
 func newCheckCmd() *cobra.Command {
 	var all, explain bool
+	var format string
 	c := &cobra.Command{
 		Use:   "check",
 		Short: "Measure the project and compare every unit with its limit",
@@ -47,6 +49,10 @@ The summary counts the whole run either way.
 position and the ICPs it contributed, so an editor plugin can turn the json
 report into inline hints.
 
+--format renders the report in the given format instead of the configured
+reporter.format. The destination still comes from the configuration, so a
+configured outputFile keeps receiving the report.
+
 Exit codes:
 
   0  no unit is above its limit, or the enforcement only reports them
@@ -55,20 +61,29 @@ Exit codes:
   2  the timeout elapsed; the printed report covers the files analyzed in time`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runCheck(c, configPath, report.Options{All: all, Explain: explain})
+			return runCheck(c, configPath, format, report.Options{All: all, Explain: explain})
 		},
 	}
 	c.Flags().BoolVar(&all, "all", false, "list every unit, not only the ones over their limit")
 	c.Flags().BoolVar(&explain, "explain", false, "list every counted construct with its position and ICPs")
+	c.Flags().StringVar(&format, "format", "",
+		"report format, overriding reporter.format: "+strings.Join(config.ReporterFormats(), ", "))
 	return c
 }
 
 // runCheck implements cdd check: load the configuration, analyze the tree it
-// governs, report the outcome and turn it into an exit code.
-func runCheck(c *cobra.Command, path string, opts report.Options) error {
+// governs, report the outcome and turn it into an exit code. A non-empty
+// format replaces the configured reporter.format.
+func runCheck(c *cobra.Command, path, format string, opts report.Options) error {
+	if err := validateFormat(format); err != nil {
+		return err
+	}
 	cfg, err := loadCheckConfig(c, path)
 	if err != nil {
 		return err
+	}
+	if format != "" {
+		cfg.Reporter.Format = format
 	}
 	res, runErr := analyze.Run(commandContext(c), analyze.Request{
 		Root:      filepath.Dir(path),
@@ -86,6 +101,16 @@ func runCheck(c *cobra.Command, path string, opts report.Options) error {
 		return exitCodeError{code: exitTimeout}
 	}
 	return violationExit(res, cfg.Enforcement)
+}
+
+// validateFormat rejects a --format value the reporter cannot render. An
+// empty value means the flag was not given. The check runs before the
+// configuration is read, so a typo fails fast instead of after the analysis.
+func validateFormat(format string) error {
+	if format == "" || config.IsReporterFormat(format) {
+		return nil
+	}
+	return fmt.Errorf("--format: %q is not one of %s", format, strings.Join(config.ReporterFormats(), ", "))
 }
 
 // loadCheckConfig reads path and validates it against the registry. Errors
