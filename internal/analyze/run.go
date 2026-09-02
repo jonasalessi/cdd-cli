@@ -24,8 +24,9 @@ import (
 // exit non-zero.
 var ErrTimeout = errors.New("analysis stopped before every file was analyzed")
 
-// Run analyzes every file under req.Root that a configured language claims
-// and the include/exclude patterns keep, and returns the weighed report.
+// Run analyzes every file under req.Root, or under req.Paths when given,
+// that a configured language claims and the include/exclude patterns keep,
+// and returns the weighed report.
 //
 // The languages are checked up front: a configured language the registry
 // does not know, or one whose analyzer does not exist yet, is an error
@@ -47,7 +48,7 @@ func Run(ctx context.Context, req Request) (RunResult, error) {
 		ctx, cancel = context.WithTimeout(ctx, p.timeout)
 		defer cancel()
 	}
-	found, err := p.collect(ctx, req.Root)
+	found, err := p.collect(ctx, req.Root, req.Paths)
 	if err != nil {
 		return RunResult{}, err
 	}

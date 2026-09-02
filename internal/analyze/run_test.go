@@ -92,6 +92,90 @@ func TestRunExcludeWinsOverInclude(t *testing.T) {
 	assert.Equal(t, []string{"src/order.alpha"}, paths(got.Files))
 }
 
+// runPaths is run narrowed to the given root-relative paths.
+func runPaths(
+	t *testing.T,
+	root string,
+	cfg *config.Config,
+	paths []string,
+	langs ...*fakeLanguage,
+) (RunResult, error) {
+	t.Helper()
+	registry := make([]Language, len(langs))
+	for i, l := range langs {
+		registry[i] = l.language()
+	}
+	return Run(t.Context(), Request{Root: root, Config: cfg, Languages: registry, Paths: paths})
+}
+
+func TestRunPathsNarrowsTheRunToTheNamedFiles(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"src/a.alpha": "a",
+		"src/b.alpha": "b",
+		"lib/c.alpha": "c",
+	})
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+
+	got, err := runPaths(t, root, testConfig(langAlpha), []string{"src/b.alpha"}, alpha)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"src/b.alpha"}, paths(got.Files))
+}
+
+func TestRunPathsWalksANamedDirectoryAndDeduplicates(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"src/a.alpha":              "a",
+		"src/nested/b.alpha":       "b",
+		"src/node_modules/c.alpha": "c",
+		"lib/d.alpha":              "d",
+	})
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+
+	got, err := runPaths(t, root, testConfig(langAlpha), []string{"src", "src/a.alpha", "src/a.alpha"}, alpha)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"src/a.alpha", "src/nested/b.alpha"}, paths(got.Files))
+}
+
+func TestRunPathsEntersANamedSkippedDirectory(t *testing.T) {
+	root := writeTree(t, map[string]string{"node_modules/dep/a.alpha": "a"})
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+
+	got, err := runPaths(t, root, testConfig(langAlpha), []string{"node_modules/dep"}, alpha)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"node_modules/dep/a.alpha"}, paths(got.Files), "the caller asked for it")
+}
+
+func TestRunPathsRejectsAFileNoLanguageClaims(t *testing.T) {
+	root := writeTree(t, map[string]string{"README.md": "docs"})
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha"}
+
+	_, err := runPaths(t, root, testConfig(langAlpha), []string{"README.md"}, alpha)
+
+	require.EqualError(t, err, "README.md: no configured language claims this file")
+}
+
+func TestRunPathsRejectsAnExcludedFile(t *testing.T) {
+	root := writeTree(t, map[string]string{"src/a.test.alpha": "a"})
+	cfg := testConfig(langAlpha)
+	cfg.Exclude = []string{"**/*.test.alpha"}
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha"}
+
+	_, err := runPaths(t, root, cfg, []string{"src/a.test.alpha"}, alpha)
+
+	require.EqualError(t, err, "src/a.test.alpha is excluded by the configuration")
+}
+
+func TestRunPathsReportsAMissingPath(t *testing.T) {
+	root := writeTree(t, map[string]string{"src/a.alpha": "a"})
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha"}
+
+	_, err := runPaths(t, root, testConfig(langAlpha), []string{"src/missing.alpha"}, alpha)
+
+	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
 func TestRunResolvesWeightsAndLimitsPerFile(t *testing.T) {
 	root := writeTree(t, map[string]string{
 		"src/app/order.alpha": "a",

@@ -308,6 +308,83 @@ func TestCheckFormatRejectsAnUnknownValue(t *testing.T) {
 	assert.Contains(t, stderr, `--format: "yaml" is not one of console, json, xml, markdown`)
 }
 
+// TestCheckPathNarrowsTheRunToOneFile is the editor-plugin call:
+// cdd check <file> --explain --format json after a save.
+func TestCheckPathNarrowsTheRunToOneFile(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	writeFixtureFile(t, dir, "src/order.ts", overLimitSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", filepath.Join("src", "greeter.ts"),
+		"--all", "--explain", "--format", "json")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal([]byte(stdout), &doc), "the report must be valid JSON: %s", stdout)
+	assert.Contains(t, stdout, "Greeter")
+	assert.NotContains(t, stdout, "OrderService", "the other file is not part of the run")
+	assert.Contains(t, stdout, `"occurrences"`)
+}
+
+func TestCheckPathResolvesFromTheWorkingDirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	writeFixtureFile(t, dir, "src/order.ts", overLimitSource)
+
+	stdout, stderr, code := runCdd(t, filepath.Join(dir, "src"), "check", "greeter.ts", "--all",
+		"--config", filepath.Join("..", "cdd.config.yaml"))
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "src/greeter.ts")
+	assert.NotContains(t, stdout, "OrderService")
+}
+
+func TestCheckPathAcceptsADirectory(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	writeFixtureFile(t, dir, "lib/order.ts", overLimitSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", "src", "--all")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "Greeter")
+	assert.NotContains(t, stdout, "OrderService")
+}
+
+func TestCheckPathOutsideTheConfigurationIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	writeFixtureFile(t, dir, "elsewhere/greeter.ts", cleanSource)
+	app := filepath.Join(dir, "app")
+	writeTSFixture(t, app)
+
+	stdout, stderr, code := runCdd(t, app, "check", filepath.Join("..", "elsewhere", "greeter.ts"))
+	assert.Equal(t, 1, code)
+	assert.Empty(t, stdout)
+	assert.Contains(t, stderr, "is outside ., the directory of the configuration")
+}
+
+func TestCheckPathThatNoLanguageClaimsIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "README.md", "docs\n")
+
+	stdout, stderr, code := runCdd(t, dir, "check", "README.md")
+	assert.Equal(t, 1, code)
+	assert.Empty(t, stdout)
+	assert.Contains(t, stderr, "README.md: no configured language claims this file")
+}
+
+func TestCheckMissingPathIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+
+	stdout, stderr, code := runCdd(t, dir, "check", filepath.Join("src", "missing.ts"))
+	assert.Equal(t, 1, code)
+	assert.Empty(t, stdout)
+	assert.Contains(t, stderr, "missing.ts")
+	assert.Contains(t, stderr, "no such file")
+}
+
 func TestCheckTimeoutReportsPartially(t *testing.T) {
 	dir := t.TempDir()
 	writeTSFixture(t, dir)

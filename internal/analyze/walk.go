@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -18,14 +20,72 @@ type candidate struct {
 	lang config.Language
 }
 
-// collect walks root and returns every file a configured language claims
-// and the matcher includes. Directories detect.SkipDir names, version
-// control and build output among them, are never entered. A canceled
-// context ends the walk with what it found so far, because Run turns that
-// into a partial result rather than an error.
-func (p *plan) collect(ctx context.Context, root string) ([]candidate, error) {
+// collect returns every file under root a configured language claims and
+// the matcher includes. A non-empty paths narrows that to the named files
+// and directories; a file named twice, directly or through its directory,
+// is returned once.
+func (p *plan) collect(ctx context.Context, root string, paths []string) ([]candidate, error) {
+	if len(paths) == 0 {
+		return p.walk(ctx, root, root)
+	}
 	var found []candidate
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	seen := make(map[string]bool)
+	for _, rel := range paths {
+		more, err := p.collectPath(ctx, root, rel)
+		if err != nil {
+			return nil, err
+		}
+		for _, c := range more {
+			if !seen[c.path] {
+				seen[c.path] = true
+				found = append(found, c)
+			}
+		}
+	}
+	return found, nil
+}
+
+// collectPath resolves one requested path: a directory is walked, a file
+// is checked on its own. The caller asked for the file by name, so one the
+// run would silently pass over in a walk is an error here.
+func (p *plan) collectPath(ctx context.Context, root, rel string) ([]candidate, error) {
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	info, err := os.Stat(full)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return p.walk(ctx, root, full)
+	}
+	c, err := p.file(rel)
+	if err != nil {
+		return nil, err
+	}
+	return []candidate{c}, nil
+}
+
+// file claims one root-relative path for the language its extension names,
+// or says why the run does not analyze it.
+func (p *plan) file(rel string) (candidate, error) {
+	lang, claimed := p.byExt[strings.ToLower(path.Ext(rel))]
+	if !claimed {
+		return candidate{}, fmt.Errorf("%s: no configured language claims this file", rel)
+	}
+	if !p.matcher.Match(rel) {
+		return candidate{}, fmt.Errorf("%s is excluded by the configuration", rel)
+	}
+	return candidate{path: rel, lang: lang}, nil
+}
+
+// walk descends from start, which is root or a directory under it, and
+// returns every file the run analyzes, with paths relative to root.
+// Directories detect.SkipDir names, version control and build output among
+// them, are never entered, unless start itself is one: the caller asked for
+// it. A canceled context ends the walk with what it found so far, because
+// Run turns that into a partial result rather than an error.
+func (p *plan) walk(ctx context.Context, root, start string) ([]candidate, error) {
+	var found []candidate
+	err := filepath.WalkDir(start, func(path string, entry fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
@@ -33,26 +93,22 @@ func (p *plan) collect(ctx context.Context, root string) ([]candidate, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if path != root && detect.SkipDir(entry.Name()) {
+			if path != start && detect.SkipDir(entry.Name()) {
 				return filepath.SkipDir
 			}
-			return nil
-		}
-		lang, claimed := p.byExt[strings.ToLower(filepath.Ext(entry.Name()))]
-		if !claimed {
 			return nil
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
 			return err
 		}
-		if slash := filepath.ToSlash(rel); p.matcher.Match(slash) {
-			found = append(found, candidate{path: slash, lang: lang})
+		if c, err := p.file(filepath.ToSlash(rel)); err == nil {
+			found = append(found, c)
 		}
 		return nil
 	})
 	if err != nil && !stoppedEarly(err) {
-		return nil, fmt.Errorf("walk %s: %w", root, err)
+		return nil, fmt.Errorf("walk %s: %w", start, err)
 	}
 	return found, nil
 }
