@@ -54,6 +54,31 @@ func TestWriteForceOverwrites(t *testing.T) {
 	assert.Contains(t, string(data), "version: 1")
 }
 
+func TestWriteStatErrorOtherThanMissing(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "regular")
+	require.NoError(t, os.WriteFile(file, nil, 0o644))
+
+	err := Write(builtConfig(t), filepath.Join(file, "cdd.config.yaml"), false)
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrExists, "a path below a regular file is not an existing target")
+}
+
+func TestWriteScratchFileFailure(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing", "cdd.config.yaml")
+	assert.Error(t, Write(builtConfig(t), path, false))
+}
+
+func TestWriteRenameFailureRemovesScratchFile(t *testing.T) {
+	// A directory cannot be replaced by a rename, so the scratch file is
+	// written and then has to be cleaned up.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "cdd.config.yaml")
+	require.NoError(t, os.Mkdir(path, 0o755))
+
+	assert.Error(t, Write(builtConfig(t), path, true))
+	assert.NoFileExists(t, path+".tmp")
+}
+
 func TestWriteRenderErrorLeavesNothingBehind(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "cdd.config.yaml")
