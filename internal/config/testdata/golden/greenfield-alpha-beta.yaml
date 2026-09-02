@@ -27,7 +27,7 @@ project_type: greenfield
 # Every language needs a ".*" entry with at least 3 metrics (docs/cdd.md §2).
 #
 # Metric vocabulary (default weight · languages):
-#   code_branch        1.0  all         if/else, switch, ternary, loops (kotlin/ts: ?. and ?:/??)
+#   code_branch        1.0  all         if/else, switch, ternary, loops (?. kotlin/ts, ?: kotlin)
 #   condition          1.0  all         logical operators (&&, ||, ??) in branch expressions
 #   exception_handling 1.0  not go      try / catch / finally blocks
 #   internal_coupling  1.0  all         references to types inside this project

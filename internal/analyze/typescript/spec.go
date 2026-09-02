@@ -26,7 +26,7 @@ func Spec() config.LanguageSpec {
 			"**/*.test.ts", "**/*.spec.ts", "**/*.d.ts", "**/node_modules/**", "**/dist/**",
 		},
 		Descriptions: map[config.MetricID]string{
-			config.MetricCodeBranch:       "if/else, switch, ternary, loops, ?. and ??",
+			config.MetricCodeBranch:       "if/else, switch, ternary, loops and ?.",
 			config.MetricCondition:        "&&, || and ?? clauses",
 			config.MetricInternalCoupling: "references to project modules",
 			config.MetricExternalCoupling: "framework / node_modules types",
