@@ -56,6 +56,37 @@ func TestConditionClauses(t *testing.T) {
 	}
 }
 
+// TestLoopBindings pins the `for…of` / `for…in` rule on its own: the loop
+// declares one local when it carries a `kind` keyword, whatever shape the
+// binding has, and none when it assigns to an existing variable.
+func TestLoopBindings(t *testing.T) {
+	cases := []struct {
+		stmt string
+		want int
+	}{
+		{"for (const i of [1]) {}", 1},
+		{"for (let i of [1]) {}", 1},
+		{"for (var i of [1]) {}", 1},
+		{"for (const k in x) {}", 1},
+		{"for (let k in x) {}", 1},
+		{"for (const [p, q] of [[1, 2]]) {}", 1},
+		{"for (const { p, q } of [x]) {}", 1},
+		{"for (a of [1]) {}", 0},
+		{"for (a in x) {}", 0},
+		{"for (a.b of [1]) {}", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.stmt, func(t *testing.T) {
+			an := newTestAnalyzer(t)
+			res, err := an.Analyze(context.Background(), "probe.ts", probe(c.stmt))
+			require.NoError(t, err)
+			require.Len(t, res.Units, 1)
+			requireCount(t, res.Units[0], config.MetricLocalVariable, c.want)
+			requireCount(t, res.Units[0], config.MetricCodeBranch, 1)
+		})
+	}
+}
+
 // TestMetrics checks each metric against its own fixture; the fixtures
 // carry the hand-computed contribution of every construct as a comment
 // beside it, so the totals below can be re-added by reading the file.
@@ -68,6 +99,7 @@ func TestMetrics(t *testing.T) {
 		want    int
 	}{
 		{"branches", "branches.ts", "branches", config.MetricCodeBranch, 14},
+		{"optional calls", "branches.ts", "optionalCalls", config.MetricCodeBranch, 4},
 		{"conditions", "conditions.ts", "conditions", config.MetricCondition, 32},
 		{"conditions branch only once", "conditions.ts", "conditions", config.MetricCodeBranch, 9},
 		{"exceptions", "exceptions.ts", "exceptions", config.MetricExceptionHandling, 5},
@@ -75,7 +107,7 @@ func TestMetrics(t *testing.T) {
 		{"extends with type arguments", "inheritance.ts", "OnlyExtends", config.MetricInheritance, 1},
 		{"interface extends", "inheritance.ts", "Wide", config.MetricInheritance, 3},
 		{"no heritage", "inheritance.ts", "None", config.MetricInheritance, 0},
-		{"declarators", "locals.ts", "locals", config.MetricLocalVariable, 6},
+		{"declarators and loop bindings", "locals.ts", "locals", config.MetricLocalVariable, 10},
 		{"class fields", "locals.ts", "Fields", config.MetricLocalVariable, 5},
 		{"property signatures", "locals.ts", "Props", config.MetricLocalVariable, 0},
 		{"lambdas", "lambdas.ts", "lambdas", config.MetricLambda, 3},

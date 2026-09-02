@@ -76,11 +76,21 @@ func (c *counter) visit(n *ts.Node) bool {
 
 // countControlFlow charges the branch, condition and exception metrics,
 // reporting whether k was one of theirs.
+//
+// Every optional_chain node is charged, whatever its parent, so each `?.`
+// the grammar gives a node to is one branch. The grammar gives one to a
+// member access (`a?.b`) and to a subscript access (`a?.[0]`) only: the
+// `?.` of an optional call is an anonymous token of call_expression, whose
+// rule is seq(field("function", …), "?.", field("arguments", …)), so
+// `a?.()` produces no node and adds nothing.
 func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	switch k {
 	case kindIfStatement, kindSwitchCase, kindTernaryExpression, kindForStatement,
-		kindForInStatement, kindWhileStatement, kindDoStatement, kindOptionalChain:
+		kindWhileStatement, kindDoStatement, kindOptionalChain:
 		c.counts[config.MetricCodeBranch]++
+	case kindForInStatement:
+		c.counts[config.MetricCodeBranch]++
+		c.countLoopBinding(n)
 	case kindElseClause:
 		c.countElse(n)
 	case kindTryStatement, kindCatchClause, kindFinallyClause:
@@ -98,10 +108,11 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 //
 // A local variable is one declarator, so `const {a, b} = x` is one and
 // `let b = 2, c = 3` is two. A `for` initialiser holds declarators and
-// counts; the binding of a `for…in` or `for…of` is not a declarator in the
-// grammar and does not. Class fields count, `#private` ones included, since
-// the grammar gives them all the same node; an interface's property
-// signatures describe a shape rather than declare variables, and do not.
+// counts; a `for…in` or `for…of` binding has no declarator in the grammar
+// and is charged by countLoopBinding instead. Class fields count,
+// `#private` ones included, since the grammar gives them all the same node;
+// an interface's property signatures describe a shape rather than declare
+// variables, and do not.
 func (c *counter) countDeclaration(k kind, n *ts.Node) {
 	switch k {
 	case kindExtendsClause:
@@ -122,6 +133,20 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 		}
 	case kindIdentifier, kindTypeIdentifier, kindShorthandPropertyIdentifier:
 		c.refs[n.Utf8Text(c.src)] = struct{}{}
+	}
+}
+
+// countLoopBinding charges the binding of a `for…in` or `for…of` loop as one
+// method-level temporary variable, which is what docs/cdd.md counts. The
+// loop declares a local exactly as `for (let i = 0; …)` does, but the
+// grammar gives it no declarator: the binding hangs off the `left` field
+// and the `let`, `const` or `var` keyword off the optional `kind` field.
+// A loop with no `kind`, `for (x of xs)`, assigns to an existing variable
+// and declares nothing. The charge is one per statement even when `left` is
+// a destructuring pattern, which is how `const {a, b} = x` is counted too.
+func (c *counter) countLoopBinding(n *ts.Node) {
+	if n.ChildByFieldId(c.g.fields.kind) != nil {
+		c.counts[config.MetricLocalVariable]++
 	}
 }
 

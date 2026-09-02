@@ -96,6 +96,7 @@ func TestFieldsResolve(t *testing.T) {
 	names := []string{
 		fieldOperator, fieldLeft, fieldRight, fieldArgument, fieldName,
 		fieldAlias, fieldValue, fieldDeclaration, fieldSource, fieldType,
+		fieldKind,
 	}
 	gs := newGrammars()
 	for _, g := range []*grammar{gs.plain, gs.tsx} {
@@ -137,7 +138,7 @@ func TestReanalyzeDoesNotLeak(t *testing.T) {
 	for range 1000 {
 		res, err := a.Analyze(context.Background(), "coupling.ts", src)
 		require.NoError(t, err)
-		require.Len(t, res.Units, 6)
+		require.Len(t, res.Units, 7)
 	}
 }
 
