@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
+	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
 // newTestAnalyzer returns an analyzer that is closed when the test ends.
@@ -39,6 +40,18 @@ func analyzeFixture(t *testing.T, name string, prefixes ...string) analyze.FileR
 	return res
 }
 
+// unitNamed returns the unit with the given name, failing when it is absent.
+func unitNamed(t *testing.T, res analyze.FileResult, name string) analyze.Unit {
+	t.Helper()
+	for _, u := range res.Units {
+		if u.Name == name {
+			return u
+		}
+	}
+	t.Fatalf("no unit named %q in %v", name, unitNames(res))
+	return analyze.Unit{}
+}
+
 // unitNames lists the names of the units of a result, for failure messages.
 func unitNames(res analyze.FileResult) []string {
 	out := make([]string, 0, len(res.Units))
@@ -46,4 +59,12 @@ func unitNames(res analyze.FileResult) []string {
 		out = append(out, u.Name)
 	}
 	return out
+}
+
+// requireCount asserts one raw count of a unit and that the unit carries
+// every metric, enabled or not.
+func requireCount(t *testing.T, u analyze.Unit, metric config.MetricID, want int) {
+	t.Helper()
+	require.Len(t, u.Counts, len(config.Metrics()), "every metric must be counted")
+	require.Equal(t, want, u.Counts[metric], "unit %q, metric %q", u.Name, metric)
 }
