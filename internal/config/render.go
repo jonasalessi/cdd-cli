@@ -17,14 +17,15 @@ var templateText string
 var configTemplate = template.Must(template.New("cdd.config.yaml").Parse(templateText))
 
 // Render writes cfg as a commented cdd.config.yaml. Languages come out in
-// Languages order, patterns in slice order and metrics in Metrics order;
-// each weight carries its MetricDescription as an aligned inline comment.
-func Render(cfg *Config) ([]byte, error) {
+// specs order, patterns in slice order and metrics in Metrics order; each
+// weight carries the language's Description as an aligned inline comment.
+// A language cfg names but specs does not know is left out.
+func Render(cfg *Config, specs []LanguageSpec) ([]byte, error) {
 	if cfg == nil {
 		return nil, errors.New("config: render: nil config")
 	}
 	var buf bytes.Buffer
-	if err := configTemplate.Execute(&buf, newTemplateData(cfg)); err != nil {
+	if err := configTemplate.Execute(&buf, newTemplateData(cfg, specs)); err != nil {
 		return nil, fmt.Errorf("config: render: %w", err)
 	}
 	return buf.Bytes(), nil
@@ -70,7 +71,7 @@ type patternLimitView struct {
 	Limit   int
 }
 
-func newTemplateData(cfg *Config) templateData {
+func newTemplateData(cfg *Config, specs []LanguageSpec) templateData {
 	outputFile := "null"
 	if cfg.Reporter.OutputFile != nil {
 		outputFile = quote(*cfg.Reporter.OutputFile)
@@ -78,8 +79,8 @@ func newTemplateData(cfg *Config) templateData {
 	return templateData{
 		Version:     cfg.Version,
 		ProjectType: cfg.ProjectType,
-		Metrics:     metricsView(cfg.Metrics),
-		Limits:      limitsView(cfg.ICPLimits),
+		Metrics:     metricsView(cfg.Metrics, specs),
+		Limits:      limitsView(cfg.ICPLimits, specs),
 		BlockOnCI:   cfg.Enforcement.BlockOnCI,
 		LegacyMode:  cfg.Enforcement.LegacyMode,
 		Timeout:     formatDuration(cfg.Timeout),
@@ -95,19 +96,19 @@ func newTemplateData(cfg *Config) templateData {
 
 // metricsView lays out every weight line and pads them to a common column
 // so the inline comments line up across the whole section.
-func metricsView(m map[Language]PatternWeights) []languageWeights {
+func metricsView(m map[Language]PatternWeights, specs []LanguageSpec) []languageWeights {
 	type entry struct {
 		text, comment string
 	}
 	var out []languageWeights
 	var cells [][]entry
 	width := 0
-	for _, lang := range Languages() {
-		patterns, ok := m[lang]
+	for _, spec := range specs {
+		patterns, ok := m[spec.ID]
 		if !ok {
 			continue
 		}
-		lw := languageWeights{Language: lang}
+		lw := languageWeights{Language: spec.ID}
 		for _, p := range patterns {
 			var block []entry
 			for _, id := range Metrics() {
@@ -117,7 +118,7 @@ func metricsView(m map[Language]PatternWeights) []languageWeights {
 				}
 				text := fmt.Sprintf("%s: %s", id, formatWeight(w))
 				width = max(width, len(text)+1)
-				block = append(block, entry{text: text, comment: MetricDescription(id, lang)})
+				block = append(block, entry{text: text, comment: spec.Description(id)})
 			}
 			lw.Patterns = append(lw.Patterns, patternLines{Pattern: quote(p.Pattern)})
 			cells = append(cells, block)
@@ -137,33 +138,25 @@ func metricsView(m map[Language]PatternWeights) []languageWeights {
 	return out
 }
 
-func limitsView(m map[Language]PatternLimits) []languageLimits {
+// limitsView lays out the limits per language; the first language also
+// carries its commented layer examples (docs/cdd.md sections 4B and 5.1).
+func limitsView(m map[Language]PatternLimits, specs []LanguageSpec) []languageLimits {
 	var out []languageLimits
-	for _, lang := range Languages() {
-		patterns, ok := m[lang]
+	for _, spec := range specs {
+		patterns, ok := m[spec.ID]
 		if !ok {
 			continue
 		}
-		ll := languageLimits{Language: lang}
+		ll := languageLimits{Language: spec.ID}
 		for _, p := range patterns {
 			ll.Patterns = append(ll.Patterns, patternLimitView{Pattern: quote(p.Pattern), Limit: p.Limit})
 		}
 		if len(out) == 0 {
-			ll.Examples = limitExamples(lang)
+			ll.Examples = spec.LimitExamples
 		}
 		out = append(out, ll)
 	}
 	return out
-}
-
-// limitExamples are the commented layer overrides shown under the first
-// language of icp-limits (docs/cdd.md sections 4B and 5.1).
-func limitExamples(lang Language) []string {
-	examples := []string{`# ".*/adapters/.*": 8`}
-	if lang == LangJava {
-		examples = append(examples, `# ".*Dto\\.java": 20`)
-	}
-	return examples
 }
 
 // formatList renders a YAML sequence: " []" inline when empty, otherwise

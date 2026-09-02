@@ -5,20 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestLanguages(t *testing.T) {
-	want := []Language{"go", "java", "kotlin", "typescript"}
-	assert.Equal(t, want, Languages())
-	for _, l := range want {
-		assert.True(t, IsLanguage(l), l)
-	}
-	assert.False(t, IsLanguage("rust"))
-
-	Languages()[0] = "mutated"
-	assert.Equal(t, want, Languages(), "accessors must return copies")
-}
 
 func TestMetrics(t *testing.T) {
 	want := []MetricID{
@@ -30,19 +17,6 @@ func TestMetrics(t *testing.T) {
 		assert.True(t, IsMetric(m), m)
 	}
 	assert.False(t, IsMetric("nesting"))
-}
-
-func TestApplicable(t *testing.T) {
-	assert.Equal(t, []MetricID{
-		"code_branch", "condition", "internal_coupling", "external_coupling", "local_variable", "lambda",
-	}, Applicable("go"))
-	for _, l := range []Language{"java", "kotlin", "typescript"} {
-		assert.Equal(t, Metrics(), Applicable(l), l)
-	}
-	assert.False(t, IsApplicable("go", "exception_handling"))
-	assert.False(t, IsApplicable("go", "inheritance"))
-	assert.True(t, IsApplicable("java", "inheritance"))
-	assert.False(t, IsApplicable("java", "nesting"), "unknown metrics never apply")
 }
 
 func TestDefaultWeight(t *testing.T) {
@@ -70,29 +44,13 @@ func TestDefaultSelection(t *testing.T) {
 
 func TestMetricDescription(t *testing.T) {
 	for _, m := range Metrics() {
-		for _, l := range Languages() {
-			assert.NotEmpty(t, MetricDescription(m, l), "%s/%s", m, l)
-		}
+		assert.NotEmpty(t, MetricDescription(m), m)
 	}
-	tests := []struct {
-		metric MetricID
-		lang   Language
-		want   string
-	}{
-		{"code_branch", "kotlin", "if/when, loops, safe calls (?.), elvis (?:)"},
-		{"code_branch", "typescript", "if/else, switch, ternary, loops, ?. and ??"},
-		{"code_branch", "go", "if/else, switch/select, for"},
-		{"code_branch", "java", "if/else, switch case, ternary, loops"},
-		{"condition", "typescript", "&&, || and ?? clauses"},
-		{"condition", "java", "&& and || clauses"},
-		{"exception_handling", "java", "try / catch / finally blocks"},
-		{"inheritance", "kotlin", ": Base() / : Iface, per level"},
-		{"inheritance", "java", "extends / implements, per level"},
-		{"lambda", "go", "func literals"},
-	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.want, MetricDescription(tt.metric, tt.lang), "%s/%s", tt.metric, tt.lang)
-	}
+	assert.Equal(t, "if/else, switch case, ternary, loops", MetricDescription("code_branch"))
+	assert.Equal(t, "&& and || clauses", MetricDescription("condition"))
+	assert.Equal(t, "try / catch / finally blocks", MetricDescription("exception_handling"))
+	assert.Equal(t, "extends / implements, per level", MetricDescription("inheritance"))
+	assert.Empty(t, MetricDescription("nesting"))
 }
 
 func TestProjectTypes(t *testing.T) {
@@ -134,19 +92,6 @@ func TestReporterFormats(t *testing.T) {
 func TestTimeouts(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, DefaultTimeout())
 	assert.Equal(t, 4*time.Second, DefaultScanTimeout())
-}
-
-func TestDefaultExcludes(t *testing.T) {
-	tests := map[Language][]string{
-		"go":         {"**/*_test.go", "vendor/**"},
-		"java":       {"**/src/test/**", "**/build/**", "**/target/**"},
-		"kotlin":     {"**/src/test/**", "**/build/**", "**/target/**"},
-		"typescript": {"**/*.test.ts", "**/*.spec.ts", "**/*.d.ts", "**/node_modules/**", "**/dist/**"},
-	}
-	for l, want := range tests {
-		require.Equal(t, want, DefaultExcludes(l), l)
-	}
-	assert.Empty(t, DefaultExcludes("rust"))
 }
 
 func TestConstants(t *testing.T) {

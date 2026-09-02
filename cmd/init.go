@@ -15,6 +15,7 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/config"
 	"github.com/jonasalessi/cdd-cli/internal/detect"
 	"github.com/jonasalessi/cdd-cli/internal/initcmd"
+	"github.com/jonasalessi/cdd-cli/internal/languages"
 	"github.com/jonasalessi/cdd-cli/internal/prompt"
 )
 
@@ -40,6 +41,7 @@ type initOptions struct {
 
 func newInitCmd() *cobra.Command {
 	opts := &initOptions{}
+	specs := languages.Specs()
 	c := &cobra.Command{
 		Use:   "init",
 		Short: "Create a cdd.config.yaml for this project",
@@ -57,12 +59,12 @@ language's analyzer can count. Every answer can also be given as a flag, and
 --yes skips the questions entirely.`,
 		Args: cobra.NoArgs,
 		RunE: func(c *cobra.Command, _ []string) error {
-			return runInit(c, opts)
+			return runInit(c, opts, specs)
 		},
 	}
 	f := c.Flags()
 	f.BoolVar(&opts.force, "force", false, "overwrite an existing configuration file")
-	f.StringSliceVar(&opts.languages, "languages", nil, "languages to configure (go, java, kotlin, typescript)")
+	f.StringSliceVar(&opts.languages, "languages", nil, "languages to configure ("+languageList(specs)+")")
 	f.StringVar(&opts.projectType, "project-type", "", "greenfield or legacy")
 	f.StringVar(&opts.legacyMode, "legacy-mode", "", "enforcement mode for legacy projects")
 	f.IntVar(&opts.limit, "limit", 0, "ICP limit applied to every language (0 = default for the project type)")
@@ -82,9 +84,19 @@ language's analyzer can count. Every answer can also be given as a flag, and
 	return c
 }
 
+// languageList joins the spec ids for the flag help.
+func languageList(specs []config.LanguageSpec) string {
+	ids := config.LanguageIDs(specs)
+	parts := make([]string, len(ids))
+	for i, id := range ids {
+		parts[i] = string(id)
+	}
+	return strings.Join(parts, ", ")
+}
+
 // runInit implements cdd init: guard the target file, detect defaults, ask
 // or read the answers, then build and write the configuration.
-func runInit(c *cobra.Command, opts *initOptions) error {
+func runInit(c *cobra.Command, opts *initOptions, specs []config.LanguageSpec) error {
 	path := opts.output
 	if path == "" {
 		path = configPath
@@ -94,7 +106,7 @@ func runInit(c *cobra.Command, opts *initOptions) error {
 	if err != nil || done {
 		return err
 	}
-	answers, det, err := gatherDefaults(opts)
+	answers, det, err := gatherDefaults(opts, specs)
 	if err != nil {
 		return err
 	}
@@ -103,7 +115,7 @@ func runInit(c *cobra.Command, opts *initOptions) error {
 			opts.scanTimeout)
 	}
 	if interactive {
-		if answers, err = prompt.Run(answers, det); err != nil {
+		if answers, err = prompt.Run(answers, det, specs); err != nil {
 			if errors.Is(err, prompt.ErrAborted) {
 				return exitCodeError{code: exitCtrlC}
 			}
@@ -112,7 +124,7 @@ func runInit(c *cobra.Command, opts *initOptions) error {
 	} else if len(answers.Languages) == 0 {
 		return errors.New("no languages detected; pass --languages to pick them")
 	}
-	return writeConfig(c, answers, path, force)
+	return writeConfig(c, answers, specs, path, force)
 }
 
 // guardExisting decides what happens when path is already there. done means
@@ -146,14 +158,14 @@ func guardExisting(c *cobra.Command, path string, force, interactive bool) (effe
 
 // gatherDefaults runs language and package detection and folds the flags in;
 // a flag always wins over a detected value.
-func gatherDefaults(opts *initOptions) (initcmd.Answers, detect.Detected, error) {
+func gatherDefaults(opts *initOptions, specs []config.LanguageSpec) (initcmd.Answers, detect.Detected, error) {
 	ctx := context.Background()
 	if opts.scanTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.scanTimeout)
 		defer cancel()
 	}
-	det, err := detect.Languages(ctx, ".")
+	det, err := detect.Languages(ctx, ".", specs)
 	if err != nil {
 		return initcmd.Answers{}, det, err
 	}
@@ -173,12 +185,16 @@ func gatherDefaults(opts *initOptions) (initcmd.Answers, detect.Detected, error)
 		Timeout:         opts.timeout,
 	}
 	if len(a.Languages) == 0 {
-		a.Languages = det.Languages()
+		a.Languages = det.Languages(specs)
 	}
 	if len(a.Packages) == 0 {
 		a.PackagesByLanguage = make(map[config.Language][]string, len(a.Languages))
 		for _, lang := range a.Languages {
-			pkgs, err := detect.Packages(".", []config.Language{lang})
+			spec, ok := config.FindSpec(specs, lang)
+			if !ok {
+				continue // initcmd.Build reports the unknown id
+			}
+			pkgs, err := spec.DetectPackages(".")
 			if err != nil {
 				return a, det, err
 			}
@@ -192,40 +208,40 @@ func gatherDefaults(opts *initOptions) (initcmd.Answers, detect.Detected, error)
 
 // writeConfig runs the use case tail: build, report warnings, write, and
 // print the one-line receipt.
-func writeConfig(c *cobra.Command, a initcmd.Answers, path string, force bool) error {
-	cfg, warnings, err := initcmd.Build(a)
+func writeConfig(c *cobra.Command, a initcmd.Answers, specs []config.LanguageSpec, path string, force bool) error {
+	cfg, warnings, err := initcmd.Build(a, specs)
 	if err != nil {
 		return err
 	}
 	for _, warning := range warnings {
 		fmt.Fprintf(c.ErrOrStderr(), "warning: %s\n", warning)
 	}
-	if err := initcmd.Write(cfg, path, force); err != nil {
+	if err := initcmd.Write(cfg, specs, path, force); err != nil {
 		if errors.Is(err, initcmd.ErrExists) {
 			return fmt.Errorf("%s exists; pass --force to overwrite", path)
 		}
 		return err
 	}
-	fmt.Fprintln(c.OutOrStdout(), summary(path, cfg))
+	fmt.Fprintln(c.OutOrStdout(), summary(path, cfg, specs))
 	return nil
 }
 
 // summary is the receipt printed after a successful write, e.g.
 // "Created cdd.config.yaml — languages: go · project: greenfield · limit: 10 · metrics: 4".
-func summary(path string, cfg *config.Config) string {
+func summary(path string, cfg *config.Config, specs []config.LanguageSpec) string {
 	var langs []string
 	limit := 0
 	ids := map[config.MetricID]bool{}
-	for _, lang := range config.Languages() {
-		patterns, ok := cfg.Metrics[lang]
+	for _, spec := range specs {
+		patterns, ok := cfg.Metrics[spec.ID]
 		if !ok {
 			continue
 		}
-		langs = append(langs, string(lang))
+		langs = append(langs, string(spec.ID))
 		for id := range patterns[0].Weights {
 			ids[id] = true
 		}
-		limit = cfg.ICPLimits[lang][0].Limit
+		limit = cfg.ICPLimits[spec.ID][0].Limit
 	}
 	return fmt.Sprintf("Created %s — languages: %s · project: %s · limit: %d · metrics: %d",
 		path, strings.Join(langs, ", "), cfg.ProjectType, limit, len(ids))

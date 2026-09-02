@@ -46,7 +46,7 @@ func TestParseCSV(t *testing.T) {
 
 func TestValidateLanguages(t *testing.T) {
 	assert.Error(t, validateLanguages(nil))
-	assert.NoError(t, validateLanguages([]config.Language{config.LangGo}))
+	assert.NoError(t, validateLanguages([]config.Language{langAlpha}))
 }
 
 func TestValidateMetrics(t *testing.T) {
@@ -70,10 +70,10 @@ func TestLimitDescription(t *testing.T) {
 }
 
 func TestLanguageLabel(t *testing.T) {
-	assert.Equal(t, "Go", languageLabel(config.LangGo, 0))
-	assert.Equal(t, "Java (1 file)", languageLabel(config.LangJava, 1))
-	assert.Equal(t, "TypeScript (12 files)", languageLabel(config.LangTypeScript, 12))
-	assert.Equal(t, "elm", languageLabel(config.Language("elm"), 0), "unknown ids fall back to the id")
+	assert.Equal(t, "Alpha", languageLabel(alphaSpec(), 0))
+	assert.Equal(t, "Beta (1 file)", languageLabel(betaSpec(), 1))
+	assert.Equal(t, "Gamma (12 files)", languageLabel(gammaSpec(), 12))
+	assert.Equal(t, "delta", languageLabel(deltaSpec(), 0), "a spec without a display name shows its id")
 }
 
 func TestTruncatedNotice(t *testing.T) {
@@ -82,44 +82,47 @@ func TestTruncatedNotice(t *testing.T) {
 }
 
 func TestLanguageOptionsPreselection(t *testing.T) {
-	det := detect.Detected{Counts: map[config.Language]int{config.LangGo: 2}}
-	options := languageOptions(det, []config.Language{config.LangGo})
-	assert.Len(t, options, len(config.Languages()))
-	assert.Equal(t, "Go (2 files)", options[0].Key)
-	assert.Equal(t, config.LangGo, options[0].Value)
+	det := detect.Detected{Counts: map[config.Language]int{langAlpha: 2}}
+	options := languageOptions(det, []config.Language{langAlpha}, testSpecs())
+	assert.Len(t, options, len(testSpecs()))
+	assert.Equal(t, "Alpha (2 files)", options[0].Key)
+	assert.Equal(t, langAlpha, options[0].Value)
+	assert.Equal(t, langDelta, options[3].Value, "specs order")
 }
 
 // TestGroupBuildersConstruct exercises every page builder; the forms
 // themselves are not driven in tests.
 func TestGroupBuildersConstruct(t *testing.T) {
-	a := initcmd.Answers{Languages: []config.Language{config.LangGo}}
+	a := initcmd.Answers{Languages: []config.Language{langAlpha}}
 	det := detect.Detected{Truncated: true, Elapsed: time.Second,
-		Counts: map[config.Language]int{config.LangGo: 2}}
+		Counts: map[config.Language]int{langAlpha: 2}}
 	raw := ""
 	sel := []config.MetricID{config.MetricCodeBranch}
 	customize := false
-	assert.NotNil(t, languagesGroup(&a, det))
+	assert.NotNil(t, languagesGroup(&a, det, testSpecs()))
 	assert.NotNil(t, projectTypeGroup(&a))
 	assert.NotNil(t, legacyModeGroup(&a))
 	assert.NotNil(t, limitGroup(&a, &raw))
-	assert.NotNil(t, metricsGroup(config.LangGo, &sel))
+	assert.NotNil(t, metricsGroup(alphaSpec(), &sel))
 	assert.NotNil(t, weightsConfirmGroup(&customize))
-	assert.NotNil(t, packagesGroup(config.LangGo, &raw))
-	assert.NotNil(t, excludesGroup(&a))
+	assert.NotNil(t, packagesGroup(alphaSpec(), &raw))
+	assert.NotNil(t, excludesGroup(&a, testSpecs()))
 }
 
 func TestMetricOptionsOnlyApplicable(t *testing.T) {
-	options := metricOptionsFor(config.LangGo, config.DefaultSelection())
-	assert.Len(t, options, len(config.Applicable(config.LangGo)))
+	options := metricOptionsFor(alphaSpec(), config.DefaultSelection())
+	assert.Len(t, options, len(alphaSpec().Applicable()))
 	assert.Equal(t, "code_branch: if/else, switch/select, for", options[0].Key,
 		"labels use the language's own wording")
+	assert.Equal(t, "condition: "+config.MetricDescription(config.MetricCondition), options[1].Key,
+		"and the generic wording otherwise")
 	for _, opt := range options {
 		assert.NotEqual(t, config.MetricInheritance, opt.Value)
 		assert.NotEqual(t, config.MetricExceptionHandling, opt.Value)
 	}
 
-	javaOptions := metricOptionsFor(config.LangJava, nil)
-	assert.Len(t, javaOptions, len(config.Metrics()))
+	betaOptions := metricOptionsFor(betaSpec(), nil)
+	assert.Len(t, betaOptions, len(config.Metrics()))
 }
 
 // TestKeyMapArrowKeys pins the arrow keys the interview adds on top of huh's
@@ -140,9 +143,9 @@ func TestHidePredicates(t *testing.T) {
 	assert.True(t, hideLegacyMode(config.ProjectGreenfield))
 	assert.False(t, hideLegacyMode(config.ProjectLegacy))
 
-	selected := []config.Language{config.LangGo}
-	assert.False(t, hideLanguagePage(config.LangGo, selected))
-	assert.True(t, hideLanguagePage(config.LangJava, selected))
+	selected := []config.Language{langAlpha}
+	assert.False(t, hideLanguagePage(langAlpha, selected))
+	assert.True(t, hideLanguagePage(langBeta, selected))
 }
 
 func TestLimitPlaceholder(t *testing.T) {
@@ -151,29 +154,29 @@ func TestLimitPlaceholder(t *testing.T) {
 }
 
 func TestPackagesHintFor(t *testing.T) {
-	assert.Contains(t, packagesHintFor(config.LangGo), "github.com/acme/api")
-	assert.Contains(t, packagesHintFor(config.LangTypeScript), "@app/")
-	assert.NotContains(t, packagesHintFor(config.LangGo), "com.acme.app")
+	assert.Contains(t, packagesHintFor(alphaSpec()), "example.com/acme/api")
+	assert.Contains(t, packagesHintFor(betaSpec()), "com.acme.app")
+	assert.NotContains(t, packagesHintFor(alphaSpec()), "com.acme.app")
 
-	assert.NotContains(t, packagesHintFor(config.Language("elm")), "e.g.",
-		"unknown languages get no example")
+	assert.NotContains(t, packagesHintFor(deltaSpec()), "e.g.",
+		"a spec without an example gets none")
 }
 
 func TestExcludesDescription(t *testing.T) {
-	desc := excludesDescription([]config.Language{config.LangJava, config.LangKotlin})
+	desc := excludesDescription([]config.Language{langBeta, langGamma}, testSpecs())
 	assert.Contains(t, desc, "**/src/test/**")
 	assert.Equal(t, 1, strings.Count(desc, "**/build/**"), "shared globs listed once")
 	assert.NotContains(t, desc, "vendor/**")
 
-	assert.Empty(t, excludesDescription(nil))
+	assert.Empty(t, excludesDescription(nil, testSpecs()))
 }
 
 func TestMetricsUnion(t *testing.T) {
 	a := initcmd.Answers{
-		Languages: []config.Language{config.LangGo, config.LangJava},
+		Languages: []config.Language{langAlpha, langBeta},
 		MetricsByLanguage: map[config.Language][]config.MetricID{
-			config.LangGo:   {config.MetricCondition, config.MetricCodeBranch},
-			config.LangJava: {config.MetricInheritance, config.MetricCondition},
+			langAlpha: {config.MetricCondition, config.MetricCodeBranch},
+			langBeta:  {config.MetricInheritance, config.MetricCondition},
 		},
 	}
 	assert.Equal(t, []config.MetricID{
@@ -183,20 +186,27 @@ func TestMetricsUnion(t *testing.T) {
 
 func TestWeightDescription(t *testing.T) {
 	a := initcmd.Answers{
-		Languages: []config.Language{config.LangGo, config.LangJava},
+		Languages: []config.Language{langAlpha, langBeta},
 		MetricsByLanguage: map[config.Language][]config.MetricID{
-			config.LangGo:   {config.MetricCodeBranch, config.MetricCondition},
-			config.LangJava: {config.MetricCodeBranch, config.MetricInheritance},
+			langAlpha: {config.MetricCodeBranch, config.MetricCondition},
+			langBeta:  {config.MetricCodeBranch, config.MetricInheritance},
 		},
 	}
-	shared := weightDescription(a, config.MetricCodeBranch)
+	shared := weightDescription(a, config.MetricCodeBranch, testSpecs())
 	assert.NotContains(t, shared, "applies to", "metrics counted by every language carry no note")
-	assert.Equal(t, config.MetricDescription(config.MetricCodeBranch, ""), shared)
+	assert.Equal(t, config.MetricDescription(config.MetricCodeBranch), shared,
+		"two owners get the generic wording, not alpha's")
 
-	partial := weightDescription(a, config.MetricInheritance)
-	assert.Contains(t, partial, "applies to: java")
+	partial := weightDescription(a, config.MetricInheritance, testSpecs())
+	assert.Contains(t, partial, "applies to: beta")
 
-	goOnly := weightDescription(a, config.MetricCondition)
-	assert.Equal(t, config.MetricDescription(config.MetricCondition, config.LangGo)+" — applies to: go", goOnly,
+	alphaOnly := weightDescription(a, config.MetricCondition, testSpecs())
+	assert.Equal(t, alphaSpec().Description(config.MetricCondition)+" — applies to: alpha", alphaOnly,
 		"a single owner gets its language's wording")
+
+	a.MetricsByLanguage[langAlpha] = []config.MetricID{config.MetricCodeBranch}
+	a.MetricsByLanguage[langBeta] = []config.MetricID{config.MetricCodeBranch, config.MetricCondition}
+	assert.Equal(t, config.MetricDescription(config.MetricCondition)+" — applies to: beta",
+		weightDescription(a, config.MetricCondition, testSpecs()),
+		"a single owner without its own wording gets the generic one")
 }

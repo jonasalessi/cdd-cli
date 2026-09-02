@@ -98,12 +98,13 @@ func (issues Issues) String() string {
 }
 
 // Validate checks cfg against rules V1 to V12 and returns every finding, so
-// a user sees all problems in one run. A nil cfg is one V1 error.
-func Validate(cfg *Config) Issues {
+// a user sees all problems in one run. specs are the known languages; a nil
+// cfg is one V1 error.
+func Validate(cfg *Config, specs []LanguageSpec) Issues {
 	if cfg == nil {
 		return Issues{{Rule: RuleVersion, Severity: SeverityError, Message: "no configuration"}}
 	}
-	v := &validator{}
+	v := &validator{specs: specs}
 	v.version(cfg)
 	v.projectType(cfg)
 	v.languages(cfg)
@@ -118,7 +119,24 @@ func Validate(cfg *Config) Issues {
 }
 
 type validator struct {
+	specs  []LanguageSpec
 	issues Issues
+}
+
+// isLanguage reports whether lang is one of the known specs.
+func (v *validator) isLanguage(lang Language) bool {
+	_, ok := FindSpec(v.specs, lang)
+	return ok
+}
+
+// isApplicable reports whether id can be counted for lang. An unknown
+// language, already reported by V3, applies every known metric.
+func (v *validator) isApplicable(lang Language, id MetricID) bool {
+	spec, ok := FindSpec(v.specs, lang)
+	if !ok {
+		return IsMetric(id)
+	}
+	return spec.IsApplicable(id)
 }
 
 func (v *validator) errorf(rule, format string, args ...any) {
@@ -145,20 +163,20 @@ func (v *validator) languages(cfg *Config) {
 	if len(cfg.Metrics) == 0 {
 		v.errorf(RuleLanguages, "metrics: at least one language is required")
 	}
-	for _, lang := range sortedLanguages(cfg.Metrics) {
-		if !IsLanguage(lang) {
-			v.errorf(RuleLanguages, "metrics: %q is not one of %s", lang, join(Languages()))
+	for _, lang := range sortedLanguages(cfg.Metrics, v.specs) {
+		if !v.isLanguage(lang) {
+			v.errorf(RuleLanguages, "metrics: %q is not one of %s", lang, join(LanguageIDs(v.specs)))
 		}
 	}
-	for _, lang := range sortedLanguages(cfg.ICPLimits) {
-		if !IsLanguage(lang) {
-			v.errorf(RuleLanguages, "icp-limits: %q is not one of %s", lang, join(Languages()))
+	for _, lang := range sortedLanguages(cfg.ICPLimits, v.specs) {
+		if !v.isLanguage(lang) {
+			v.errorf(RuleLanguages, "icp-limits: %q is not one of %s", lang, join(LanguageIDs(v.specs)))
 		}
 	}
 }
 
 func (v *validator) metrics(cfg *Config) {
-	for _, lang := range sortedLanguages(cfg.Metrics) {
+	for _, lang := range sortedLanguages(cfg.Metrics, v.specs) {
 		patterns := cfg.Metrics[lang]
 		v.defaultEntry("metrics", lang, len(patterns), func(i int) string { return patterns[i].Pattern })
 		for i, p := range patterns {
@@ -177,7 +195,7 @@ func (v *validator) metrics(cfg *Config) {
 				switch {
 				case !IsMetric(id):
 					v.errorf(RuleMetricIDs, "metrics.%s.%q: %q is not one of %s", lang, p.Pattern, id, join(Metrics()))
-				case !IsApplicable(lang, id):
+				case !v.isApplicable(lang, id):
 					v.errorf(RuleMetricIDs, "metrics.%s.%q: %s does not apply to %s", lang, p.Pattern, id, lang)
 				}
 				if w := p.Weights[id]; w <= 0 {
@@ -190,7 +208,7 @@ func (v *validator) metrics(cfg *Config) {
 
 func (v *validator) limits(cfg *Config) {
 	lo, hi := LimitBand(cfg.ProjectType)
-	for _, lang := range sortedLanguages(cfg.ICPLimits) {
+	for _, lang := range sortedLanguages(cfg.ICPLimits, v.specs) {
 		patterns := cfg.ICPLimits[lang]
 		v.defaultEntry("icp-limits", lang, len(patterns), func(i int) string { return patterns[i].Pattern })
 		for _, p := range patterns {
@@ -284,12 +302,12 @@ func (v *validator) reporter(cfg *Config) {
 }
 
 func (v *validator) languageSets(cfg *Config) {
-	for _, lang := range sortedLanguages(cfg.Metrics) {
+	for _, lang := range sortedLanguages(cfg.Metrics, v.specs) {
 		if _, ok := cfg.ICPLimits[lang]; !ok {
 			v.errorf(RuleLanguageSets, "icp-limits: missing entry for %s, which metrics configures", lang)
 		}
 	}
-	for _, lang := range sortedLanguages(cfg.ICPLimits) {
+	for _, lang := range sortedLanguages(cfg.ICPLimits, v.specs) {
 		if _, ok := cfg.Metrics[lang]; !ok {
 			v.errorf(RuleLanguageSets, "metrics: missing entry for %s, which icp-limits configures", lang)
 		}
@@ -302,18 +320,18 @@ func (v *validator) timeout(cfg *Config) {
 	}
 }
 
-// sortedLanguages returns the keys of m in Languages order, with unknown
+// sortedLanguages returns the keys of m in specs order, with unknown
 // languages last in lexical order, so messages are stable.
-func sortedLanguages[V any](m map[Language]V) []Language {
+func sortedLanguages[V any](m map[Language]V, specs []LanguageSpec) []Language {
 	var out []Language
-	for _, lang := range Languages() {
-		if _, ok := m[lang]; ok {
-			out = append(out, lang)
+	for _, spec := range specs {
+		if _, ok := m[spec.ID]; ok {
+			out = append(out, spec.ID)
 		}
 	}
 	var unknown []string
 	for lang := range m {
-		if !IsLanguage(lang) {
+		if _, ok := FindSpec(specs, lang); !ok {
 			unknown = append(unknown, string(lang))
 		}
 	}

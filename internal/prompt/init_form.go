@@ -21,30 +21,14 @@ import (
 // ErrAborted is returned when the user cancels the interview with ctrl-c.
 var ErrAborted = huh.ErrUserAborted
 
-// displayNames maps language ids to their prompt labels.
-var displayNames = map[config.Language]string{
-	config.LangGo:         "Go",
-	config.LangJava:       "Java",
-	config.LangKotlin:     "Kotlin",
-	config.LangTypeScript: "TypeScript",
-}
-
-// packageExamples shows, per language, the shape of an internal package
-// prefix in the packages question.
-var packageExamples = map[config.Language]string{
-	config.LangGo:         "github.com/acme/api",
-	config.LangJava:       "com.acme.app",
-	config.LangKotlin:     "com.acme.app",
-	config.LangTypeScript: "@app/",
-}
-
 // Run walks through the interview as one multi-page form and returns the
 // answers. defaults pre-fills every question; det adds the file counts and,
-// for a cut-short scan, the notice to the language question. Pages that do
-// not apply to the answers given so far — the enforcement mode of a
-// greenfield project, the metrics of an unselected language — stay hidden,
-// and shift+tab navigates back.
-func Run(defaults initcmd.Answers, det detect.Detected) (initcmd.Answers, error) {
+// for a cut-short scan, the notice to the language question; specs are the
+// languages on offer, in the order they are listed. Pages that do not apply
+// to the answers given so far — the enforcement mode of a greenfield
+// project, the metrics of an unselected language — stay hidden, and
+// shift+tab navigates back.
+func Run(defaults initcmd.Answers, det detect.Detected, specs []config.LanguageSpec) (initcmd.Answers, error) {
 	a := defaults
 	if a.ProjectType == "" {
 		a.ProjectType = config.ProjectGreenfield
@@ -59,27 +43,27 @@ func Run(defaults initcmd.Answers, det detect.Detected) (initcmd.Answers, error)
 	customize := false
 
 	groups := []*huh.Group{
-		languagesGroup(&a, det),
+		languagesGroup(&a, det, specs),
 		projectTypeGroup(&a),
 		legacyModeGroup(&a).WithHideFunc(func() bool { return hideLegacyMode(a.ProjectType) }),
 		limitGroup(&a, &limitRaw),
 	}
-	selections := make(map[config.Language]*[]config.MetricID, len(config.Languages()))
-	for _, lang := range config.Languages() {
-		sel := initcmd.SeedMetrics(a, lang)
-		selections[lang] = &sel
-		groups = append(groups, metricsGroup(lang, selections[lang]).
-			WithHideFunc(func() bool { return hideLanguagePage(lang, a.Languages) }))
+	selections := make(map[config.Language]*[]config.MetricID, len(specs))
+	for _, spec := range specs {
+		sel := initcmd.SeedMetrics(a, spec)
+		selections[spec.ID] = &sel
+		groups = append(groups, metricsGroup(spec, selections[spec.ID]).
+			WithHideFunc(func() bool { return hideLanguagePage(spec.ID, a.Languages) }))
 	}
 	groups = append(groups, weightsConfirmGroup(&customize))
-	pkgRaws := make(map[config.Language]*string, len(config.Languages()))
-	for _, lang := range config.Languages() {
-		raw := strings.Join(initcmd.SeedPackages(a, lang), ", ")
-		pkgRaws[lang] = &raw
-		groups = append(groups, packagesGroup(lang, pkgRaws[lang]).
-			WithHideFunc(func() bool { return hideLanguagePage(lang, a.Languages) }))
+	pkgRaws := make(map[config.Language]*string, len(specs))
+	for _, spec := range specs {
+		raw := strings.Join(initcmd.SeedPackages(a, spec.ID), ", ")
+		pkgRaws[spec.ID] = &raw
+		groups = append(groups, packagesGroup(spec, pkgRaws[spec.ID]).
+			WithHideFunc(func() bool { return hideLanguagePage(spec.ID, a.Languages) }))
 	}
-	groups = append(groups, excludesGroup(&a))
+	groups = append(groups, excludesGroup(&a, specs))
 	if err := huh.NewForm(groups...).WithKeyMap(keyMap()).Run(); err != nil {
 		return a, err
 	}
@@ -102,7 +86,7 @@ func Run(defaults initcmd.Answers, det detect.Detected) (initcmd.Answers, error)
 	}
 	a.Packages = nil
 	if customize {
-		if err := runWeightsForm(&a); err != nil {
+		if err := runWeightsForm(&a, specs); err != nil {
 			return a, err
 		}
 	}
@@ -138,7 +122,7 @@ func sectionTitle(title string) string {
 	return rule + " " + title + " " + rule
 }
 
-func languagesGroup(a *initcmd.Answers, det detect.Detected) *huh.Group {
+func languagesGroup(a *initcmd.Answers, det detect.Detected, specs []config.LanguageSpec) *huh.Group {
 	description := "Detected languages are pre-checked"
 	if det.Truncated {
 		description += "; " + truncatedNotice(det.Elapsed)
@@ -146,7 +130,7 @@ func languagesGroup(a *initcmd.Answers, det detect.Detected) *huh.Group {
 	return huh.NewGroup(huh.NewMultiSelect[config.Language]().
 		Title(sectionTitle("Languages")).
 		Description(description).
-		Options(languageOptions(det, a.Languages)...).
+		Options(languageOptions(det, a.Languages, specs)...).
 		Validate(validateLanguages).
 		Value(&a.Languages))
 }
@@ -192,12 +176,12 @@ func limitGroup(a *initcmd.Answers, raw *string) *huh.Group {
 		Value(raw))
 }
 
-func metricsGroup(lang config.Language, sel *[]config.MetricID) *huh.Group {
-	name := languageLabel(lang, 0)
+func metricsGroup(spec config.LanguageSpec, sel *[]config.MetricID) *huh.Group {
+	name := languageLabel(spec, 0)
 	return huh.NewGroup(huh.NewMultiSelect[config.MetricID]().
 		Title(sectionTitle("Metrics — " + name)).
 		Description(fmt.Sprintf("Only metrics the %s analyzer can count; pick at least %d", name, config.MinMetrics)).
-		Options(metricOptionsFor(lang, *sel)...).
+		Options(metricOptionsFor(spec, *sel)...).
 		Validate(validateMetrics).
 		Value(sel))
 }
@@ -209,23 +193,23 @@ func weightsConfirmGroup(customize *bool) *huh.Group {
 		Value(customize))
 }
 
-func packagesGroup(lang config.Language, raw *string) *huh.Group {
+func packagesGroup(spec config.LanguageSpec, raw *string) *huh.Group {
 	return huh.NewGroup(huh.NewInput().
-		Title(sectionTitle("Internal packages — " + languageLabel(lang, 0))).
-		Description(packagesHintFor(lang)).
+		Title(sectionTitle("Internal packages — " + languageLabel(spec, 0))).
+		Description(packagesHintFor(spec)).
 		Value(raw))
 }
 
-func excludesGroup(a *initcmd.Answers) *huh.Group {
+func excludesGroup(a *initcmd.Answers, specs []config.LanguageSpec) *huh.Group {
 	return huh.NewGroup(huh.NewConfirm().
 		Title(sectionTitle("Exclude tests and generated code?")).
-		DescriptionFunc(func() string { return excludesDescription(a.Languages) }, &a.Languages).
+		DescriptionFunc(func() string { return excludesDescription(a.Languages, specs) }, &a.Languages).
 		Value(&a.DefaultExcludes))
 }
 
 // runWeightsForm asks one weight per metric selected by any language and
 // stores the overrides.
-func runWeightsForm(a *initcmd.Answers) error {
+func runWeightsForm(a *initcmd.Answers, specs []config.LanguageSpec) error {
 	union := metricsUnion(*a)
 	values := make([]string, len(union))
 	fields := make([]huh.Field, len(union))
@@ -237,7 +221,7 @@ func runWeightsForm(a *initcmd.Answers) error {
 		values[i] = strconv.FormatFloat(weight, 'f', -1, 64)
 		fields[i] = huh.NewInput().
 			Title(string(id)).
-			Description(weightDescription(*a, id)).
+			Description(weightDescription(*a, id, specs)).
 			Validate(validateWeight).
 			Value(&values[i])
 	}
@@ -272,21 +256,27 @@ func hideLanguagePage(lang config.Language, selected []config.Language) bool {
 	return !slices.Contains(selected, lang)
 }
 
-// languageOptions lists every known language, labels the detected ones with
-// their file count and pre-checks the defaults.
-func languageOptions(det detect.Detected, selected []config.Language) []huh.Option[config.Language] {
-	out := make([]huh.Option[config.Language], 0, len(config.Languages()))
-	for _, lang := range config.Languages() {
-		out = append(out, huh.NewOption(languageLabel(lang, det.Counts[lang]), lang).
-			Selected(slices.Contains(selected, lang)))
+// languageOptions lists every spec, labels the detected ones with their
+// file count and pre-checks the defaults.
+func languageOptions(
+	det detect.Detected,
+	selected []config.Language,
+	specs []config.LanguageSpec,
+) []huh.Option[config.Language] {
+	out := make([]huh.Option[config.Language], 0, len(specs))
+	for _, spec := range specs {
+		out = append(out, huh.NewOption(languageLabel(spec, det.Counts[spec.ID]), spec.ID).
+			Selected(slices.Contains(selected, spec.ID)))
 	}
 	return out
 }
 
-func languageLabel(lang config.Language, count int) string {
-	label := displayNames[lang]
+// languageLabel names the language for a page title or an option, with the
+// file count when there is one. A spec without a display name shows its id.
+func languageLabel(spec config.LanguageSpec, count int) string {
+	label := spec.DisplayName
 	if label == "" {
-		label = string(lang)
+		label = string(spec.ID)
 	}
 	switch count {
 	case 0:
@@ -304,11 +294,11 @@ func truncatedNotice(elapsed time.Duration) string {
 
 // metricOptionsFor lists the metrics the language's analyzer can count, each
 // described in the language's own wording, and pre-checks the seed.
-func metricOptionsFor(lang config.Language, selected []config.MetricID) []huh.Option[config.MetricID] {
-	applicable := config.Applicable(lang)
+func metricOptionsFor(spec config.LanguageSpec, selected []config.MetricID) []huh.Option[config.MetricID] {
+	applicable := spec.Applicable()
 	out := make([]huh.Option[config.MetricID], 0, len(applicable))
 	for _, id := range applicable {
-		label := fmt.Sprintf("%s: %s", id, config.MetricDescription(id, lang))
+		label := fmt.Sprintf("%s: %s", id, spec.Description(id))
 		out = append(out, huh.NewOption(label, id).Selected(slices.Contains(selected, id)))
 	}
 	return out
@@ -334,18 +324,19 @@ func metricsUnion(a initcmd.Answers) []config.MetricID {
 // weightDescription describes a weight input: the language's own wording
 // when exactly one selected language counts the metric, and a note naming
 // the languages it applies to when it is not counted by all of them.
-func weightDescription(a initcmd.Answers, id config.MetricID) string {
+func weightDescription(a initcmd.Answers, id config.MetricID, specs []config.LanguageSpec) string {
 	var owners []config.Language
 	for _, lang := range a.Languages {
 		if slices.Contains(a.MetricsByLanguage[lang], id) {
 			owners = append(owners, lang)
 		}
 	}
-	lang := config.Language("")
+	description := config.MetricDescription(id)
 	if len(owners) == 1 {
-		lang = owners[0]
+		if spec, ok := config.FindSpec(specs, owners[0]); ok {
+			description = spec.Description(id)
+		}
 	}
-	description := config.MetricDescription(id, lang)
 	if len(owners) < len(a.Languages) {
 		ids := make([]string, len(owners))
 		for i, owner := range owners {
@@ -357,25 +348,24 @@ func weightDescription(a initcmd.Answers, id config.MetricID) string {
 }
 
 // packagesHintFor shows the prefix format of the language.
-func packagesHintFor(lang config.Language) string {
+func packagesHintFor(spec config.LanguageSpec) string {
 	base := "Comma-separated prefixes counted as internal coupling"
-	example, ok := packageExamples[lang]
-	if !ok {
+	if spec.PackageExample == "" {
 		return base
 	}
-	return base + ", e.g. " + example
+	return base + ", e.g. " + spec.PackageExample
 }
 
 // excludesDescription lists the globs a yes answer writes for the selected
-// languages, deduplicated in canonical language order.
-func excludesDescription(langs []config.Language) string {
+// languages, deduplicated in specs order.
+func excludesDescription(langs []config.Language, specs []config.LanguageSpec) string {
 	var globs []string
 	seen := map[string]bool{}
-	for _, lang := range config.Languages() {
-		if !slices.Contains(langs, lang) {
+	for _, spec := range specs {
+		if !slices.Contains(langs, spec.ID) {
 			continue
 		}
-		for _, glob := range config.DefaultExcludes(lang) {
+		for _, glob := range spec.DefaultExcludes {
 			if !seen[glob] {
 				seen[glob] = true
 				globs = append(globs, glob)
