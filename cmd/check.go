@@ -43,12 +43,13 @@ analyzes the tree rooted at that file's directory, so a configuration in a
 subdirectory measures that subdirectory alone.
 
 Paths narrow the run to the named files and directories, resolved from the
-working directory. They must lie under the configuration's directory, since
-limits and internal coupling are resolved against it. A named file must belong
-to a configured language and pass the include/exclude patterns, so a plugin
-can re-check the file that was just saved:
+working directory. Several paths may share one argument separated by commas.
+They must lie under the configuration's directory, since limits and internal
+coupling are resolved against it. A named file must belong to a configured
+language and pass the include/exclude patterns, so a plugin can re-check the
+files that were just saved:
 
-  cdd check src/order/service.ts --explain --format json
+  cdd check src/order/service.ts,src/order/repository.ts --explain --format json
 
 The report lists the units above their limit; --all lists every measured unit.
 The summary counts the whole run either way.
@@ -128,16 +129,18 @@ func validateFormat(format string) error {
 }
 
 // checkPaths turns the paths given on the command line, relative to the
-// working directory, into slash-separated paths relative to root. A path
-// outside root is an error: the run resolves limits and internal coupling
-// against root, so a file elsewhere has no limit to be compared with.
+// working directory, into slash-separated paths relative to root. An
+// argument may carry several paths separated by commas, so a plugin can
+// hand over every changed file as one argument. A path outside root is an
+// error: the run resolves limits and internal coupling against root, so a
+// file elsewhere has no limit to be compared with.
 func checkPaths(root string, args []string) ([]string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	paths := make([]string, 0, len(args))
-	for _, arg := range args {
+	var paths []string
+	for _, arg := range splitPaths(args) {
 		abs, err := filepath.Abs(arg)
 		if err != nil {
 			return nil, err
@@ -149,6 +152,20 @@ func checkPaths(root string, args []string) ([]string, error) {
 		paths = append(paths, filepath.ToSlash(rel))
 	}
 	return paths, nil
+}
+
+// splitPaths expands comma-separated arguments into one path each, dropping
+// the empty entries a trailing comma or doubled separator leaves behind.
+func splitPaths(args []string) []string {
+	var out []string
+	for _, arg := range args {
+		for p := range strings.SplitSeq(arg, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
 }
 
 // loadCheckConfig reads path and validates it against the registry. Errors
