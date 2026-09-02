@@ -53,6 +53,15 @@ type Enforcement struct {
 	LegacyMode string `yaml:"legacy_mode"`
 }
 
+// Blocks reports whether a violation must fail the run. Only strict_all is
+// enforced today: strict_on_new_only and boy_scout need the git history and
+// the baseline store, neither of which exists yet, and measure_only never
+// blocks. A run whose block_on_ci is set while Blocks is false reports the
+// violations without failing on them.
+func (e Enforcement) Blocks() bool {
+	return e.BlockOnCI && e.LegacyMode == ModeStrictAll
+}
+
 // Reporter selects the report format and destination. A nil OutputFile
 // means stdout.
 type Reporter struct {
