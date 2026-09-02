@@ -30,7 +30,7 @@ go install github.com/jonasalessi/cdd-cli@latest
 ```
 
 That build needs a C compiler. The TypeScript analyzer embeds Tree-sitter
-through cgo, so `CGO_ENABLED=1` and a working toolchain are required:
+through cgo, so you need `CGO_ENABLED=1` and a working toolchain:
 
 | Platform | Toolchain |
 | --- | --- |
@@ -160,7 +160,7 @@ subdirectory measures that subdirectory alone.
 
 Paths narrow the run to the named files and directories. They are resolved
 from the working directory and must lie under the configuration's directory,
-which the limits and the internal coupling are resolved against. Several
+since the limits and the internal coupling are resolved against it. Several
 paths may share one argument separated by commas. A named file must belong to
 a configured language and pass `include` / `exclude`, so asking for a file
 the run would skip is an error rather than an empty report. An editor plugin
@@ -198,8 +198,8 @@ unit: src/greeter.ts:1:8 class Greeter icp=1 limit=10
   metrics: code_branch=1
 ```
 
-`--explain` details whatever is listed, adding one line per counted construct
-under the `metrics` line — where it is and what it contributed:
+`--explain` details whatever is listed. Under the `metrics` line it adds one
+line per counted construct, saying where it is and what it contributed:
 
 ```
 $ cdd check --explain
@@ -243,7 +243,7 @@ cdd check --all --explain
 
 with `format: json` and turn each occurrence into an inline hint.
 
-A file the analyzer could not read is reported as `warning: <path>: <text>`
+`check` reports a file the analyzer could not read as `warning: <path>: <text>`
 at the end, and a run cut short by the timeout adds `partial=true` to the
 first line. The `json` and `xml` reports carry the same filter under a
 `filter` field, `violations` or `all`, so a reader knows why a unit is
@@ -290,12 +290,12 @@ rather than reporting zero ICPs for files it cannot read.
 
 ## Support
 
-For issues, please visit the [Issue Tracker](https://github.com/jonasalessi/cdd-cli/issues).
+Bugs and feature requests go in the [issue tracker](https://github.com/jonasalessi/cdd-cli/issues).
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to get started.
 
 ## License
 
-This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+Apache License 2.0. See [LICENSE](LICENSE).
