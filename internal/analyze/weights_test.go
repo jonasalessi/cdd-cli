@@ -239,3 +239,74 @@ func TestResolverResolveWithoutUnitsIsNil(t *testing.T) {
 	require.NoError(t, err)
 	assert.Nil(t, resolver.Resolve("a.alpha", nil))
 }
+
+// TestScoreWeighsTheOccurrencesOfTheEnabledMetrics pins the occurrence side
+// of Score: an occurrence of a disabled metric is dropped, the rest keep the
+// analyzer's source order, and each score is Count times the metric weight.
+func TestScoreWeighsTheOccurrencesOfTheEnabledMetrics(t *testing.T) {
+	branch := Occurrence{Metric: config.MetricCodeBranch, Line: 4, Col: 3, EndLine: 6, EndCol: 4, Count: 1}
+	lambda := Occurrence{Metric: config.MetricLambda, Line: 5, Col: 10, EndLine: 5, EndCol: 20, Count: 1}
+	imported := Occurrence{Metric: config.MetricExternalCoupling, Line: 1, Col: 1, EndLine: 1, EndCol: 25, Count: 1}
+	pair := Occurrence{Metric: config.MetricCondition, Line: 4, Col: 7, EndLine: 4, EndCol: 13, Count: 2}
+
+	tests := []struct {
+		name    string
+		unit    Unit
+		weights map[config.MetricID]float64
+		want    []OccurrenceReport
+	}{
+		{
+			name:    "an occurrence of a disabled metric is dropped",
+			unit:    Unit{Occurrences: []Occurrence{branch, lambda}},
+			weights: map[config.MetricID]float64{config.MetricCodeBranch: 1},
+			want:    []OccurrenceReport{{Occurrence: branch, Score: 1}},
+		},
+		{
+			name: "source order is kept",
+			unit: Unit{Occurrences: []Occurrence{imported, branch, lambda}},
+			weights: map[config.MetricID]float64{
+				config.MetricExternalCoupling: 1,
+				config.MetricCodeBranch:       1,
+				config.MetricLambda:           1,
+			},
+			want: []OccurrenceReport{
+				{Occurrence: imported, Score: 1},
+				{Occurrence: branch, Score: 1},
+				{Occurrence: lambda, Score: 1},
+			},
+		},
+		{
+			name:    "a weight of one half halves the score",
+			unit:    Unit{Occurrences: []Occurrence{imported}},
+			weights: map[config.MetricID]float64{config.MetricExternalCoupling: 0.5},
+			want:    []OccurrenceReport{{Occurrence: imported, Score: 0.5}},
+		},
+		{
+			name:    "a count of two is weighed as a pair",
+			unit:    Unit{Occurrences: []Occurrence{pair}},
+			weights: map[config.MetricID]float64{config.MetricCondition: 0.5},
+			want:    []OccurrenceReport{{Occurrence: pair, Score: 1}},
+		},
+		{
+			name:    "a unit without occurrences reports none",
+			unit:    Unit{},
+			weights: map[config.MetricID]float64{config.MetricCodeBranch: 1},
+			want:    nil,
+		},
+		{
+			name:    "every metric disabled reports none",
+			unit:    Unit{Occurrences: []Occurrence{branch, lambda}},
+			weights: map[config.MetricID]float64{},
+			want:    nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Score(tt.unit, tt.weights, 10)
+			assert.Len(t, got.Occurrences, len(tt.want))
+			for i := range tt.want {
+				assert.Equal(t, tt.want[i], got.Occurrences[i], "occurrence %d", i)
+			}
+		})
+	}
+}

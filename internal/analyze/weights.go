@@ -129,7 +129,9 @@ func (r *Resolver) Resolve(path string, units []Unit) []UnitReport {
 // Score applies weights and limit to one unit: a metric absent from weights
 // is dropped from the report, the remaining counts are multiplied by their
 // weight, and the sum is the unit's ICP total. Metrics are summed in
-// config.Metrics order, so the total does not depend on map iteration.
+// config.Metrics order, so the total does not depend on map iteration. The
+// unit's occurrences go through the same filter, so what the report locates
+// is exactly what it counts.
 func Score(unit Unit, weights map[config.MetricID]float64, limit int) UnitReport {
 	counts := make(map[config.MetricID]int, len(unit.Counts))
 	scores := make(map[config.MetricID]float64, len(unit.Counts))
@@ -154,5 +156,26 @@ func Score(unit Unit, weights map[config.MetricID]float64, limit int) UnitReport
 		Total:   total,
 		Limit:   limit,
 		Exceeds: total > float64(limit),
+
+		Occurrences: weighOccurrences(unit.Occurrences, weights),
 	}
+}
+
+// weighOccurrences keeps the occurrences of the enabled metrics, in the
+// source order the analyzer produced them, and scores each one by its
+// metric's weight. An occurrence of a disabled metric is dropped, exactly
+// as that metric's count is.
+func weighOccurrences(occurrences []Occurrence, weights map[config.MetricID]float64) []OccurrenceReport {
+	if len(occurrences) == 0 {
+		return nil
+	}
+	out := make([]OccurrenceReport, 0, len(occurrences))
+	for _, o := range occurrences {
+		weight, enabled := weights[o.Metric]
+		if !enabled {
+			continue
+		}
+		out = append(out, OccurrenceReport{Occurrence: o, Score: float64(o.Count) * weight})
+	}
+	return out
 }
