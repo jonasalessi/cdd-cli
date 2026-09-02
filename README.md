@@ -29,6 +29,18 @@ somewhere between 20 and 40, and comes down as the code improves.
 go install github.com/jonasalessi/cdd-cli@latest
 ```
 
+That build needs a C compiler. The TypeScript analyzer embeds Tree-sitter
+through cgo, so `CGO_ENABLED=1` and a working toolchain are required:
+
+| Platform | Toolchain |
+| --- | --- |
+| macOS | clang, from the Xcode command line tools: `xcode-select --install` |
+| Debian / Ubuntu | gcc, from the `build-essential` package |
+| Windows | gcc, from MSYS2 or MinGW-w64 |
+
+The grammar parse tables are compiled into the binary, which makes it a few
+megabytes larger than a pure-Go build.
+
 Or from a clone:
 
 ```sh
@@ -45,6 +57,7 @@ Every command reads `cdd.config.yaml` from the working directory. Pass
 cdd --help      # the command list
 cdd version     # version, commit and build date
 cdd init        # Initialize the configuration
+cdd check       # Measure the project against the configuration
 ```
 
 ### cdd init
@@ -137,6 +150,59 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 The first six are ticked by default. Weights are per language and per file
 pattern, so a DTO package can count coupling at half the weight of everything
 else without a second file.
+
+### cdd check
+
+`check` walks the last two steps of CDD: it computes the ICPs of every code
+unit and compares each one with the limit its file resolves to. It analyzes
+the tree rooted at the configuration file's directory, so a configuration in a
+subdirectory measures that subdirectory alone.
+
+```
+$ cdd check
+cdd check .
+✓ src/greeter.ts:1:8  class Greeter  1/10
+✗ src/order-service.ts:4:8  class OrderService  16.5/10
+    code_branch 5×1=5
+    condition 10×1=10
+    internal_coupling 1×1=1
+    external_coupling 1×0.5=0.5
+2 units analyzed, 1 over limit, elapsed 1ms
+```
+
+A unit within its limit stays on one line. A unit over it lists the metrics
+that earned the points, which is where a refactoring starts.
+
+#### What it reads from the configuration
+
+| Key | What `check` does with it |
+| --- | --- |
+| `metrics` | Which constructs count per language and file pattern, and their weights. A metric absent from the merged weights is not counted. |
+| `icp-limits` | The limit each unit is compared with. The last matching pattern wins. |
+| `enforcement` | Whether a unit over its limit fails the run. |
+| `timeout` | Wall-clock budget for the whole run. `0s` removes the budget. |
+| `reporter` | `format` picks `console`, `json`, `xml` or `markdown`; `outputFile` writes the report to that path instead of stdout. |
+| `internal_coupling` | Which import prefixes count as internal coupling rather than external. |
+| `include` / `exclude` | Which files are analyzed. `exclude` wins over `include`. |
+
+Only `strict_all` blocks today. `strict_on_new_only` and `boy_scout` need the
+git history and the baseline store, neither of which exists yet, so `check`
+reports their violations and says they are not enforced.
+
+#### Exit codes
+
+| Code | When |
+| --- | --- |
+| `0` | No unit is over its limit, or the enforcement only reports them. |
+| `1` | A unit is over its limit while `block_on_ci` is true and `legacy_mode` is `strict_all`. |
+| `2` | The timeout elapsed. The report printed first covers the files analyzed in time. |
+| `1` | Usage error, missing configuration file, or a configuration that fails validation. |
+
+#### Language support
+
+TypeScript is the only language with an analyzer today. `init` still configures
+Go, Java and Kotlin, and `check` stops with `no analyzer for <language> yet`
+rather than reporting zero ICPs for files it cannot read.
 
 ## Contributing
 

@@ -170,13 +170,13 @@ cdd.config.yaml + internal/config/testdata/golden/* + cmd/testdata/golden/*
 
 ## Definition of done
 
-- [ ] `make build`
-- [ ] `make test` (race detector on, as today)
-- [ ] `make lint` (including `check-literals`)
-- [ ] `make fmt` leaves no diff
-- [ ] Coverage ≥ 90 % for `internal/analyze`, `internal/analyze/typescript`, `internal/report`
-- [ ] CI dogfood gate (`cdd init … && git diff --exit-code cdd.config.yaml`) green
-- [ ] `cmd/check.go` contains no business rules (mirrors the `init` layering)
+- [x] `make build`
+- [x] `make test` (race detector on, as today)
+- [x] `make lint` (including `check-literals`)
+- [x] `make fmt` leaves no diff
+- [x] Coverage ≥ 90 % for `internal/analyze`, `internal/analyze/typescript`, `internal/report`
+- [x] CI dogfood gate (`cdd init … && git diff --exit-code cdd.config.yaml`) green
+- [x] `cmd/check.go` contains no business rules (mirrors the `init` layering)
 
 ## Suggested order
 
