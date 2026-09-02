@@ -1,8 +1,7 @@
-cdd check /projects/shop
-✗ src/checkout.ts:12:3  class CheckoutService  14.5/10
-    code_branch 6×1=6
-    condition 3×1=3
-    external_coupling 11×0.5=5.5
-warning: src/checkout.ts: unsupported syntax at 42:7, unit skipped
+cdd check: FAIL violations=1 units=3 root=/projects/shop elapsed=1.234s
 warning: the legacy mode is reported, not enforced yet
-3 units analyzed, 1 over limit, elapsed 1.234s
+
+violation: src/checkout.ts:12:3 class CheckoutService icp=14.5 limit=10 over=4.5
+  metrics: code_branch=6 external_coupling=11x0.5 condition=3
+
+warning: src/checkout.ts: unsupported syntax at 42:7, unit skipped

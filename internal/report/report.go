@@ -21,6 +21,10 @@ import (
 // is meant to be read by humans and by CI, never kept secret.
 const outputFileMode = 0o644
 
+// metricsNone stands in for the metric list of a unit that scored on no
+// metric at all; every format spells that the same way.
+const metricsNone = "none"
+
 // The values of the document's filter field: which units the report lists.
 // They are not part of the configuration vocabulary, they only tell a reader
 // why a unit is missing from the document.
