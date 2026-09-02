@@ -122,6 +122,20 @@ func TestMetricOptionsOnlyApplicable(t *testing.T) {
 	assert.Len(t, javaOptions, len(config.Metrics()))
 }
 
+// TestKeyMapArrowKeys pins the arrow keys the interview adds on top of huh's
+// defaults, which already move the cursor of a select and a multi-select.
+func TestKeyMapArrowKeys(t *testing.T) {
+	km := keyMap()
+	assert.Contains(t, km.Confirm.Toggle.Keys(), "up")
+	assert.Contains(t, km.Confirm.Toggle.Keys(), "down")
+	assert.Contains(t, km.Confirm.Toggle.Keys(), "left", "the defaults are kept")
+	assert.Contains(t, km.Input.Prev.Keys(), "up")
+	assert.Contains(t, km.Input.Prev.Keys(), "shift+tab", "the defaults are kept")
+	assert.Contains(t, km.Input.Next.Keys(), "down")
+	assert.Contains(t, km.Select.Up.Keys(), "up")
+	assert.Contains(t, km.MultiSelect.Down.Keys(), "down")
+}
+
 func TestHidePredicates(t *testing.T) {
 	assert.True(t, hideLegacyMode(config.ProjectGreenfield))
 	assert.False(t, hideLegacyMode(config.ProjectLegacy))

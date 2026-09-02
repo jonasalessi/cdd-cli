@@ -80,7 +80,7 @@ func Run(defaults initcmd.Answers, det detect.Detected) (initcmd.Answers, error)
 			WithHideFunc(func() bool { return hideLanguagePage(lang, a.Languages) }))
 	}
 	groups = append(groups, excludesGroup(&a))
-	if err := huh.NewForm(groups...).Run(); err != nil {
+	if err := huh.NewForm(groups...).WithKeyMap(keyMap()).Run(); err != nil {
 		return a, err
 	}
 
@@ -115,8 +115,27 @@ func ConfirmOverwrite(path string) (bool, error) {
 	overwrite := false
 	err := huh.NewForm(huh.NewGroup(huh.NewConfirm().
 		Title(fmt.Sprintf("%s already exists. Overwrite?", path)).
-		Value(&overwrite))).Run()
+		Value(&overwrite))).WithKeyMap(keyMap()).Run()
 	return overwrite, err
+}
+
+// keyMap extends huh's defaults so the arrow keys work the same way on every
+// page. Select and multi-select already move their cursor with up and down;
+// this adds them to the yes/no toggle and to moving between the weight
+// inputs, which otherwise answer only to left/right and tab.
+func keyMap() *huh.KeyMap {
+	km := huh.NewDefaultKeyMap()
+	km.Confirm.Toggle.SetKeys(append(km.Confirm.Toggle.Keys(), "up", "down")...)
+	km.Input.Prev.SetKeys(append(km.Input.Prev.Keys(), "up")...)
+	km.Input.Next.SetKeys(append(km.Input.Next.Keys(), "down")...)
+	return km
+}
+
+// sectionTitle frames a page title in rules so it stands out from the
+// options below it.
+func sectionTitle(title string) string {
+	const rule = "================="
+	return rule + " " + title + " " + rule
 }
 
 func languagesGroup(a *initcmd.Answers, det detect.Detected) *huh.Group {
@@ -125,7 +144,7 @@ func languagesGroup(a *initcmd.Answers, det detect.Detected) *huh.Group {
 		description += "; " + truncatedNotice(det.Elapsed)
 	}
 	return huh.NewGroup(huh.NewMultiSelect[config.Language]().
-		Title("Languages").
+		Title(sectionTitle("Languages")).
 		Description(description).
 		Options(languageOptions(det, a.Languages)...).
 		Validate(validateLanguages).
@@ -136,7 +155,7 @@ func projectTypeGroup(a *initcmd.Answers) *huh.Group {
 	greenfieldLabel := config.ProjectGreenfield + ": strict from day one, limit 7-14 (cdd.md 4A)"
 	legacyLabel := config.ProjectLegacy + ": measure existing, enforce new, limit 20-40"
 	return huh.NewGroup(huh.NewSelect[string]().
-		Title("Project type").
+		Title(sectionTitle("Project type")).
 		Options(
 			huh.NewOption(greenfieldLabel, config.ProjectGreenfield),
 			huh.NewOption(legacyLabel, config.ProjectLegacy),
@@ -146,7 +165,7 @@ func projectTypeGroup(a *initcmd.Answers) *huh.Group {
 
 func legacyModeGroup(a *initcmd.Answers) *huh.Group {
 	return huh.NewGroup(huh.NewSelect[string]().
-		Title("Enforcement mode").
+		Title(sectionTitle("Enforcement mode")).
 		Options(
 			huh.NewOption(config.ModeStrictOnNewOnly+": existing files are measured only, new files must comply",
 				config.ModeStrictOnNewOnly),
@@ -161,7 +180,7 @@ func limitGroup(a *initcmd.Answers, raw *string) *huh.Group {
 	// The char limit keeps huh's width math non-negative on very narrow
 	// terminals, where rendering an empty input's placeholder panics.
 	return huh.NewGroup(huh.NewInput().
-		Title("ICP limit").
+		Title(sectionTitle("ICP limit")).
 		CharLimit(4).
 		PlaceholderFunc(func() string { return limitPlaceholder(a.ProjectType) }, &a.ProjectType).
 		DescriptionFunc(func() string { return limitDescription(a.ProjectType, *raw) },
@@ -176,7 +195,7 @@ func limitGroup(a *initcmd.Answers, raw *string) *huh.Group {
 func metricsGroup(lang config.Language, sel *[]config.MetricID) *huh.Group {
 	name := languageLabel(lang, 0)
 	return huh.NewGroup(huh.NewMultiSelect[config.MetricID]().
-		Title("Metrics — " + name).
+		Title(sectionTitle("Metrics — " + name)).
 		Description(fmt.Sprintf("Only metrics the %s analyzer can count; pick at least %d", name, config.MinMetrics)).
 		Options(metricOptionsFor(lang, *sel)...).
 		Validate(validateMetrics).
@@ -185,21 +204,21 @@ func metricsGroup(lang config.Language, sel *[]config.MetricID) *huh.Group {
 
 func weightsConfirmGroup(customize *bool) *huh.Group {
 	return huh.NewGroup(huh.NewConfirm().
-		Title("Customize weights?").
+		Title(sectionTitle("Customize weights?")).
 		Description("Defaults: 1.0, except external_coupling and local_variable at 0.5").
 		Value(customize))
 }
 
 func packagesGroup(lang config.Language, raw *string) *huh.Group {
 	return huh.NewGroup(huh.NewInput().
-		Title("Internal packages — " + languageLabel(lang, 0)).
+		Title(sectionTitle("Internal packages — " + languageLabel(lang, 0))).
 		Description(packagesHintFor(lang)).
 		Value(raw))
 }
 
 func excludesGroup(a *initcmd.Answers) *huh.Group {
 	return huh.NewGroup(huh.NewConfirm().
-		Title("Exclude tests and generated code?").
+		Title(sectionTitle("Exclude tests and generated code?")).
 		DescriptionFunc(func() string { return excludesDescription(a.Languages) }, &a.Languages).
 		Value(&a.DefaultExcludes))
 }
@@ -222,7 +241,12 @@ func runWeightsForm(a *initcmd.Answers) error {
 			Validate(validateWeight).
 			Value(&values[i])
 	}
-	if err := huh.NewForm(huh.NewGroup(fields...)).Run(); err != nil {
+	// The title goes on the group: this is the one page with several fields,
+	// so no single field can carry it.
+	group := huh.NewGroup(fields...).
+		Title(sectionTitle("Metric weights")).
+		Description("One weight per metric selected by any language; must be above 0")
+	if err := huh.NewForm(group).WithKeyMap(keyMap()).Run(); err != nil {
 		return err
 	}
 	if a.Weights == nil {
