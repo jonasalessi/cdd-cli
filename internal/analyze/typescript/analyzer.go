@@ -74,7 +74,7 @@ func (a *analyzer) Analyze(ctx context.Context, path string, src []byte) (analyz
 	decls := units(g, root, src)
 	out := make([]analyze.Unit, 0, len(decls))
 	for i := range decls {
-		out = append(out, measure(&decls[i]))
+		out = append(out, a.measure(g, &decls[i], src))
 	}
 	return analyze.FileResult{Units: out}, nil
 }
@@ -138,9 +138,21 @@ func timeoutMicros(d time.Duration) uint64 {
 	return 1
 }
 
-// measure turns one extracted unit into a reported one.
-func measure(d *unitDecl) analyze.Unit {
-	return analyze.Unit{Name: d.name, Kind: d.kind, Line: d.line, Col: d.col, Counts: zeroCounts()}
+// measure counts one unit.
+func (a *analyzer) measure(g *grammar, d *unitDecl, src []byte) analyze.Unit {
+	c := newCounter(g, src, d)
+	walk(a.treeCursor(&d.node), &d.node, c.visit)
+	return analyze.Unit{Name: d.name, Kind: d.kind, Line: d.line, Col: d.col, Counts: c.counts}
+}
+
+// treeCursor returns the analyzer's cursor, creating it on first use. A
+// cursor is not bound to the tree it was created from: walk resets it onto
+// whichever node it is given.
+func (a *analyzer) treeCursor(n *ts.Node) *ts.TreeCursor {
+	if a.cursor == nil {
+		a.cursor = n.Walk()
+	}
+	return a.cursor
 }
 
 // syntaxWarning names the file and the position of the first error or
