@@ -146,12 +146,20 @@ func timeoutMicros(d time.Duration) uint64 {
 	return 1
 }
 
-// measure counts one unit and attributes the file's imports to it.
+// measure counts one unit, attributes the file's imports to it, and locates
+// every construct it charged.
 func (a *analyzer) measure(g *grammar, d *unitDecl, mods []module, src []byte) analyze.Unit {
 	c := newCounter(g, src, d)
 	walk(a.treeCursor(&d.node), &d.node, c.visit)
 	c.countCoupling(mods)
-	return analyze.Unit{Name: d.name, Kind: d.kind, Line: d.line, Col: d.col, Counts: c.counts}
+	return analyze.Unit{
+		Name:        d.name,
+		Kind:        d.kind,
+		Line:        d.line,
+		Col:         d.col,
+		Counts:      c.counts,
+		Occurrences: c.sortedOccurrences(),
+	}
 }
 
 // treeCursor returns the analyzer's cursor, creating it on first use. A
