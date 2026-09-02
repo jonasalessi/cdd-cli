@@ -1,7 +1,7 @@
 {
   "root": "/projects/shop",
   "filter": "all",
-  "explain": false,
+  "explain": true,
   "partial": false,
   "elapsed_ms": 1234,
   "files": [
@@ -33,6 +33,18 @@
               "count": 1,
               "score": 0.5
             }
+          ],
+          "occurrences": [
+            {
+              "unit": "greet",
+              "metric": "code_branch",
+              "line": 2,
+              "col": 3,
+              "end_line": 4,
+              "end_col": 4,
+              "count": 1,
+              "score": 1
+            }
           ]
         },
         {
@@ -58,6 +70,48 @@
               "metric": "external_coupling",
               "count": 11,
               "score": 5.5
+            }
+          ],
+          "occurrences": [
+            {
+              "unit": "CheckoutService",
+              "metric": "external_coupling",
+              "line": 1,
+              "col": 1,
+              "end_line": 1,
+              "end_col": 30,
+              "count": 1,
+              "score": 0.5
+            },
+            {
+              "unit": "CheckoutService",
+              "metric": "code_branch",
+              "line": 12,
+              "col": 3,
+              "end_line": 14,
+              "end_col": 4,
+              "count": 1,
+              "score": 1
+            },
+            {
+              "unit": "CheckoutService",
+              "metric": "condition",
+              "line": 12,
+              "col": 7,
+              "end_line": 12,
+              "end_col": 15,
+              "count": 1,
+              "score": 1
+            },
+            {
+              "unit": "CheckoutService",
+              "metric": "condition",
+              "line": 12,
+              "col": 19,
+              "end_line": 12,
+              "end_col": 28,
+              "count": 1,
+              "score": 1
             }
           ]
         }
@@ -89,7 +143,8 @@
               "count": 1,
               "score": 1
             }
-          ]
+          ],
+          "occurrences": []
         }
       ]
     }

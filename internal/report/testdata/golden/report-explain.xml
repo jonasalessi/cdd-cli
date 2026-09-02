@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<report root="/projects/shop" filter="all" explain="false" partial="false" elapsed_ms="1234">
+<report root="/projects/shop" filter="all" explain="true" partial="false" elapsed_ms="1234">
   <files>
     <file path="src/checkout.ts" language="typescript">
       <units>
@@ -7,11 +7,20 @@
           <metric id="code_branch" count="2" score="2"></metric>
           <metric id="condition" count="0" score="0"></metric>
           <metric id="external_coupling" count="1" score="0.5"></metric>
+          <occurrences>
+            <occurrence unit="greet" metric="code_branch" line="2" col="3" end_line="4" end_col="4" count="1" score="1"></occurrence>
+          </occurrences>
         </unit>
         <unit name="CheckoutService" kind="class" line="12" col="3" total="14.5" limit="10" exceeds="true">
           <metric id="code_branch" count="6" score="6"></metric>
           <metric id="condition" count="3" score="3"></metric>
           <metric id="external_coupling" count="11" score="5.5"></metric>
+          <occurrences>
+            <occurrence unit="CheckoutService" metric="external_coupling" line="1" col="1" end_line="1" end_col="30" count="1" score="0.5"></occurrence>
+            <occurrence unit="CheckoutService" metric="code_branch" line="12" col="3" end_line="14" end_col="4" count="1" score="1"></occurrence>
+            <occurrence unit="CheckoutService" metric="condition" line="12" col="7" end_line="12" end_col="15" count="1" score="1"></occurrence>
+            <occurrence unit="CheckoutService" metric="condition" line="12" col="19" end_line="12" end_col="28" count="1" score="1"></occurrence>
+          </occurrences>
         </unit>
       </units>
       <warnings>
@@ -23,6 +32,7 @@
         <unit name="formatMoney" kind="function" line="3" col="1" total="2" limit="10" exceeds="false">
           <metric id="code_branch" count="1" score="1"></metric>
           <metric id="condition" count="1" score="1"></metric>
+          <occurrences></occurrences>
         </unit>
       </units>
       <warnings></warnings>

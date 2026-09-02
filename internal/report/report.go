@@ -37,6 +37,10 @@ const (
 type Options struct {
 	// All lists every unit; the default lists only units above their limit.
 	All bool
+	// Explain lists every counted construct of each listed unit with its
+	// position and score, for editors and plugins. It details whatever All
+	// listed; the two filters are independent.
+	Explain bool
 }
 
 // filterName spells the filter opts stands for.
@@ -140,6 +144,14 @@ func metricText(m Metric) string {
 	}
 	weight := m.Score / float64(m.Count)
 	return fmt.Sprintf("%s %d×%s=%s", m.ID, m.Count, formatNumber(weight), formatNumber(m.Score))
+}
+
+// occurrenceText spells one counted construct: the editor range it covers,
+// the metric it was counted under and what it added to the unit, e.g.
+// "12:3-14:4 code_branch +1". The console and markdown reports both open
+// the line their own way and share this tail.
+func occurrenceText(o Occurrence) string {
+	return fmt.Sprintf("%d:%d-%d:%d %s +%s", o.Line, o.Col, o.EndLine, o.EndCol, o.Metric, formatNumber(o.Score))
 }
 
 // printer writes a report linearly and remembers the first failure, so a

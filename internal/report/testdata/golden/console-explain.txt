@@ -1,0 +1,18 @@
+cdd check: FAIL violations=1 units=3 root=/projects/shop elapsed=1.234s
+warning: the legacy mode is reported, not enforced yet
+
+violation: src/checkout.ts:12:3 class CheckoutService icp=14.5 limit=10 over=4.5
+  metrics: code_branch=6 external_coupling=11x0.5 condition=3
+  icp: 1:1-1:30 external_coupling +0.5
+  icp: 12:3-14:4 code_branch +1
+  icp: 12:7-12:15 condition +1
+  icp: 12:19-12:28 condition +1
+
+unit: src/checkout.ts:1:1 function greet icp=2.5 limit=10
+  metrics: code_branch=2 external_coupling=1x0.5
+  icp: 2:3-4:4 code_branch +1
+
+unit: src/money.ts:3:1 function formatMoney icp=2 limit=10
+  metrics: code_branch=1 condition=1
+
+warning: src/checkout.ts: unsupported syntax at 42:7, unit skipped

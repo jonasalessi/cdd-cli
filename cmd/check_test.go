@@ -124,6 +124,65 @@ func TestCheckAllListsTheUnitsWithinTheirLimit(t *testing.T) {
 	assert.NotContains(t, stdout, violationLabel)
 }
 
+// TestCheckExplainIsAccepted pins the flag and the console shape, not the
+// positions: locating a construct is the analyzer's job, and a unit with no
+// located construct simply gains no line.
+func TestCheckExplainIsAccepted(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--all", "--explain")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, unitLabel+" src/greeter.ts:1:8 class Greeter icp=1 limit=10\n")
+	for line := range strings.SplitSeq(stdout, "\n") {
+		if after, ok := strings.CutPrefix(line, "  icp: "); ok {
+			assert.Regexp(t, `^\d+:\d+-\d+:\d+ \w+ \+[0-9.]+$`, after)
+		}
+	}
+}
+
+// TestCheckExplainAddsOccurrencesToTheJSONReport is the contract an editor
+// plugin reads: cdd check --all --explain with format json.
+func TestCheckExplainAddsOccurrencesToTheJSONReport(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	editConfig(t, dir, "  format: console", "  format: json")
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--all", "--explain")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+
+	var doc struct {
+		Explain bool `json:"explain"`
+		Files   []struct {
+			Units []struct {
+				Name        string            `json:"name"`
+				Occurrences *[]map[string]any `json:"occurrences"`
+			} `json:"units"`
+		} `json:"files"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(stdout), &doc), "the report must be valid JSON")
+	assert.True(t, doc.Explain)
+	require.NotEmpty(t, doc.Files)
+	require.NotEmpty(t, doc.Files[0].Units)
+	unit := doc.Files[0].Units[0]
+	assert.Equal(t, "Greeter", unit.Name)
+	assert.NotNil(t, unit.Occurrences, "every listed unit carries the key, even when it is empty")
+}
+
+func TestCheckWithoutExplainOmitsOccurrences(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	writeFixtureFile(t, dir, "src/greeter.ts", cleanSource)
+	editConfig(t, dir, "  format: console", "  format: json")
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--all")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, `"explain": false`)
+	assert.NotContains(t, stdout, "occurrences")
+}
+
 func TestCheckOverLimitUnitBlocks(t *testing.T) {
 	dir := t.TempDir()
 	writeTSFixture(t, dir)

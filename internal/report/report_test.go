@@ -73,7 +73,8 @@ func (errWriter) Write([]byte) (int, error) { return 0, errWrite }
 
 func TestWriteReportsWriteErrors(t *testing.T) {
 	for _, format := range config.ReporterFormats() {
-		assert.ErrorIs(t, Write(errWriter{}, format, fullRun(), Options{All: true}), errWrite, format)
+		opts := Options{All: true, Explain: true}
+		assert.ErrorIs(t, Write(errWriter{}, format, fullRun(), opts), errWrite, format)
 	}
 }
 
@@ -108,6 +109,153 @@ func TestJSONRoundTrip(t *testing.T) {
 		{ID: string(config.MetricCondition), Count: 3, Score: 3},
 		{ID: string(config.MetricExternalCoupling), Count: 11, Score: 5.5},
 	}, over.Metrics)
+}
+
+// renderExplain is Write into a buffer detailing every listed unit, the way
+// --all --explain does.
+func renderExplain(t *testing.T, format string, res analyze.RunResult) string {
+	t.Helper()
+	return renderWith(t, format, res, Options{All: true, Explain: true})
+}
+
+func TestExplainIsOffByDefault(t *testing.T) {
+	doc := newReport(fullRun(), Options{All: true})
+	assert.False(t, doc.Explain)
+	for _, f := range doc.Files {
+		for _, u := range f.Units {
+			assert.Nil(t, u.Occurrences, u.Name)
+			assert.Empty(t, u.constructs(), u.Name)
+		}
+	}
+}
+
+func TestExplainListsTheConstructsOfEveryListedUnit(t *testing.T) {
+	doc := newReport(fullRun(), Options{All: true, Explain: true})
+	assert.True(t, doc.Explain)
+
+	greet := doc.Files[0].Units[0]
+	require.NotNil(t, greet.Occurrences)
+	assert.Equal(t, []Occurrence{{
+		Unit: "greet", Metric: string(config.MetricCodeBranch),
+		Line: 2, Col: 3, EndLine: 4, EndCol: 4, Count: 1, Score: 1,
+	}}, greet.constructs())
+
+	checkout := doc.Files[0].Units[1].constructs()
+	require.Len(t, checkout, 4)
+	assert.Equal(t, Occurrence{
+		Unit: "CheckoutService", Metric: string(config.MetricExternalCoupling),
+		Line: 1, Col: 1, EndLine: 1, EndCol: 30, Count: 1, Score: 0.5,
+	}, checkout[0], "the coupling sits on the import, before the unit itself")
+}
+
+func TestExplainRepeatsTheOwningUnitOnEveryConstruct(t *testing.T) {
+	doc := newReport(fullRun(), Options{All: true, Explain: true})
+	for _, f := range doc.Files {
+		for _, u := range f.Units {
+			for _, o := range u.constructs() {
+				assert.Equal(t, u.Name, o.Unit, "a plugin flattens a file on this field")
+			}
+		}
+	}
+}
+
+func TestExplainIsIndependentOfTheUnitFilter(t *testing.T) {
+	doc := newReport(fullRun(), Options{Explain: true})
+	require.Len(t, doc.Files, 1)
+	require.Len(t, doc.Files[0].Units, 1, "explain details what --all listed, it never lists more")
+	assert.Equal(t, "CheckoutService", doc.Files[0].Units[0].Name)
+	assert.Len(t, doc.Files[0].Units[0].constructs(), 4)
+	assert.Equal(t, filterViolations, doc.Filter)
+}
+
+func TestExplainFieldIsRendered(t *testing.T) {
+	assert.Contains(t, renderAll(t, config.FormatJSON, fullRun()), `"explain": false`)
+	assert.Contains(t, renderExplain(t, config.FormatJSON, fullRun()), `"explain": true`)
+	assert.Contains(t, renderAll(t, config.FormatXML, fullRun()), `explain="false"`)
+	assert.Contains(t, renderExplain(t, config.FormatXML, fullRun()), `explain="true"`)
+}
+
+func TestJSONOmitsOccurrencesUnlessExplained(t *testing.T) {
+	assert.NotContains(t, renderAll(t, config.FormatJSON, fullRun()), "occurrences")
+	assert.NotContains(t, renderAll(t, config.FormatXML, fullRun()), "occurrences")
+}
+
+func TestJSONExplainsAnEmptyUnitAsAnEmptyList(t *testing.T) {
+	out := renderExplain(t, config.FormatJSON, fullRun())
+	assert.Contains(t, out, `"occurrences": []`, "formatMoney counted nothing we located")
+	assert.NotContains(t, out, `"occurrences": null`)
+}
+
+func TestJSONRoundTripsOccurrences(t *testing.T) {
+	var doc Report
+	require.NoError(t, json.Unmarshal([]byte(renderExplain(t, config.FormatJSON, fullRun())), &doc))
+	assert.True(t, doc.Explain)
+
+	require.Len(t, doc.Files, 2)
+	checkout := doc.Files[0].Units[1]
+	assert.Equal(t, "CheckoutService", checkout.Name)
+	require.NotNil(t, checkout.Occurrences)
+	assert.Equal(t, []Occurrence{
+		{Unit: "CheckoutService", Metric: string(config.MetricExternalCoupling),
+			Line: 1, Col: 1, EndLine: 1, EndCol: 30, Count: 1, Score: 0.5},
+		{Unit: "CheckoutService", Metric: string(config.MetricCodeBranch),
+			Line: 12, Col: 3, EndLine: 14, EndCol: 4, Count: 1, Score: 1},
+		{Unit: "CheckoutService", Metric: string(config.MetricCondition),
+			Line: 12, Col: 7, EndLine: 12, EndCol: 15, Count: 1, Score: 1},
+		{Unit: "CheckoutService", Metric: string(config.MetricCondition),
+			Line: 12, Col: 19, EndLine: 12, EndCol: 28, Count: 1, Score: 1},
+	}, checkout.constructs())
+
+	money := doc.Files[1].Units[0]
+	require.NotNil(t, money.Occurrences, "an explained unit says it counted nothing")
+	assert.Empty(t, money.constructs())
+}
+
+func TestConsoleExplainsUnderTheMetricsLine(t *testing.T) {
+	out := renderExplain(t, config.FormatConsole, fullRun())
+	assert.Contains(t, out,
+		"violation: src/checkout.ts:12:3 class CheckoutService icp=14.5 limit=10 over=4.5\n"+
+			"  metrics: code_branch=6 external_coupling=11x0.5 condition=3\n"+
+			"  icp: 1:1-1:30 external_coupling +0.5\n"+
+			"  icp: 12:3-14:4 code_branch +1\n"+
+			"  icp: 12:7-12:15 condition +1\n"+
+			"  icp: 12:19-12:28 condition +1\n")
+	assert.Contains(t, out,
+		"unit: src/money.ts:3:1 function formatMoney icp=2 limit=10\n"+
+			"  metrics: code_branch=1 condition=1\n\n",
+		"a unit without a located construct gains no line")
+}
+
+func TestConsoleWithoutExplainIsUnchanged(t *testing.T) {
+	for _, opts := range []Options{{}, {All: true}} {
+		out := renderWith(t, config.FormatConsole, fullRun(), opts)
+		assert.NotContains(t, out, "  icp: ")
+	}
+}
+
+func TestMarkdownExplainsUnderTheMetricsBullet(t *testing.T) {
+	out := renderExplain(t, config.FormatMarkdown, fullRun())
+	assert.Contains(t, out,
+		"- `greet` — code_branch 2×1=2, external_coupling 1×0.5=0.5\n"+
+			"  - 2:3-4:4 code_branch +1\n")
+	assert.Contains(t, out, "  - 12:19-12:28 condition +1\n")
+	assert.NotContains(t, renderAll(t, config.FormatMarkdown, fullRun()), "  - 2:3-4:4")
+}
+
+func TestXMLExplainsUnderEachUnit(t *testing.T) {
+	out := renderExplain(t, config.FormatXML, fullRun())
+	assert.Contains(t, out, `<occurrence unit="greet" metric="code_branch" `+
+		`line="2" col="3" end_line="4" end_col="4" count="1" score="1">`)
+	assert.Contains(t, out, "<occurrences></occurrences>", "formatMoney counted nothing we located")
+}
+
+func TestOccurrenceText(t *testing.T) {
+	o := Occurrence{Metric: string(config.MetricCondition), Line: 12, Col: 7, EndLine: 12, EndCol: 15, Score: 1}
+	assert.Equal(t, "12:7-12:15 condition +1", occurrenceText(o))
+	o.Score = 0.5
+	assert.Equal(t, "12:7-12:15 condition +0.5", occurrenceText(o))
+	o.Score = 2
+	assert.Equal(t, "12:7-12:15 condition +2", occurrenceText(o))
 }
 
 func TestFilterListsOnlyViolationsByDefault(t *testing.T) {
@@ -325,7 +473,8 @@ func TestMarkdownListsOnlyCountedMetrics(t *testing.T) {
 func TestXMLShapesTheRun(t *testing.T) {
 	out := render(t, config.FormatXML, fullRun())
 	assert.True(t, strings.HasPrefix(out, `<?xml version="1.0" encoding="UTF-8"?>`))
-	assert.Contains(t, out, `<report root="/projects/shop" filter="violations" partial="false" elapsed_ms="1234">`)
+	assert.Contains(t, out,
+		`<report root="/projects/shop" filter="violations" explain="false" partial="false" elapsed_ms="1234">`)
 	assert.Contains(t, out, `<summary units="3" violations="1">`)
 	assert.Contains(t, out, `<metric id="external_coupling" count="11" score="5.5">`)
 	assert.True(t, strings.HasSuffix(out, "</report>\n"))

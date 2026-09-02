@@ -101,8 +101,9 @@ func overLimit(u Unit) float64 {
 }
 
 // consoleUnit writes one record: where the unit is and what it scored, then
-// the metrics that earned the score. A blank line opens the record, so the
-// reader sees where one ends and the next begins.
+// the metrics that earned the score and, when the report explains itself,
+// one "icp" line per counted construct. A blank line opens the record, so
+// the reader sees where one ends and the next begins.
 func consoleUnit(p *printer, r consoleRecord) {
 	u := r.unit
 	label, gap := labelUnit, ""
@@ -112,6 +113,9 @@ func consoleUnit(p *printer, r consoleRecord) {
 	p.printf("\n%s: %s:%d:%d %s %s icp=%s limit=%d%s\n",
 		label, r.path, u.Line, u.Col, u.Kind, u.Name, formatNumber(u.Total), u.Limit, gap)
 	p.printf("  metrics: %s\n", consoleMetrics(u.Metrics))
+	for _, o := range u.constructs() {
+		p.printf("  icp: %s\n", occurrenceText(o))
+	}
 }
 
 // consoleMetrics spells the metrics that earned the ICPs, the heaviest
