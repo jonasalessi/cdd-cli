@@ -44,6 +44,7 @@ Every command reads `cdd.config.yaml` from the working directory. Pass
 ```sh
 cdd --help      # the command list
 cdd version     # version, commit and build date
+cdd init        # Initialize the configuration
 ```
 
 ### cdd init
