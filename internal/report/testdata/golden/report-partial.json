@@ -1,5 +1,6 @@
 {
   "root": "/projects/shop",
+  "blocked": false,
   "filter": "violations",
   "explain": false,
   "partial": true,

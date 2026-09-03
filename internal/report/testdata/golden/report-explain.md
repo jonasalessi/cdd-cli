@@ -33,10 +33,8 @@ Metrics:
 
 - `formatMoney` — code_branch 1×1=1, condition 1×1=1
 
-## Warnings
-
-- the legacy mode is reported, not enforced yet
-
 ## Summary
+
+Violations block this run.
 
 3 units analyzed, 1 over limit, elapsed 1.234s.

@@ -8,11 +8,11 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
-// Weights are the metric weights one language configures, pattern by
+// weights are the metric weights one language configures, pattern by
 // pattern, in the document order of cdd.config.yaml. Every pattern whose
 // regex matches a file applies; a later entry merges its weights over the
 // earlier ones, metric by metric.
-type Weights struct {
+type weights struct {
 	entries []weightEntry
 }
 
@@ -22,25 +22,25 @@ type weightEntry struct {
 	weights map[config.MetricID]float64
 }
 
-// NewWeights compiles the pattern list config.Config.Metrics holds for one
+// newWeights compiles the pattern list config.Config.Metrics holds for one
 // language. A pattern that is not a valid RE2 regex is an error naming it;
 // config.Validate reports the same problem earlier and with more context.
-func NewWeights(patterns config.PatternWeights) (Weights, error) {
+func newWeights(patterns config.PatternWeights) (weights, error) {
 	entries := make([]weightEntry, 0, len(patterns))
 	for _, p := range patterns {
 		match, err := regexp.Compile(p.Pattern)
 		if err != nil {
-			return Weights{}, fmt.Errorf("pattern %q: %w", p.Pattern, err)
+			return weights{}, fmt.Errorf("pattern %q: %w", p.Pattern, err)
 		}
 		entries = append(entries, weightEntry{match: match, weights: p.Weights})
 	}
-	return Weights{entries: entries}, nil
+	return weights{entries: entries}, nil
 }
 
 // For returns the weights that apply to path, which is slash-separated and
 // relative to the configuration file. A metric absent from the result is
 // disabled for that file. The map is fresh, so the caller may keep it.
-func (w Weights) For(path string) map[config.MetricID]float64 {
+func (w weights) For(path string) map[config.MetricID]float64 {
 	merged := map[config.MetricID]float64{}
 	for _, e := range w.entries {
 		if !e.match.MatchString(path) {
@@ -51,9 +51,9 @@ func (w Weights) For(path string) map[config.MetricID]float64 {
 	return merged
 }
 
-// Limits are the ICP limits one language configures, pattern by pattern, in
+// limits are the ICP limits one language configures, pattern by pattern, in
 // document order. The last matching entry wins; limits do not merge.
-type Limits struct {
+type limits struct {
 	entries []limitEntry
 }
 
@@ -63,24 +63,24 @@ type limitEntry struct {
 	limit int
 }
 
-// NewLimits compiles the pattern list config.Config.ICPLimits holds for one
+// newLimits compiles the pattern list config.Config.ICPLimits holds for one
 // language. A pattern that is not a valid RE2 regex is an error naming it.
-func NewLimits(patterns config.PatternLimits) (Limits, error) {
+func newLimits(patterns config.PatternLimits) (limits, error) {
 	entries := make([]limitEntry, 0, len(patterns))
 	for _, p := range patterns {
 		match, err := regexp.Compile(p.Pattern)
 		if err != nil {
-			return Limits{}, fmt.Errorf("pattern %q: %w", p.Pattern, err)
+			return limits{}, fmt.Errorf("pattern %q: %w", p.Pattern, err)
 		}
 		entries = append(entries, limitEntry{match: match, limit: p.Limit})
 	}
-	return Limits{entries: entries}, nil
+	return limits{entries: entries}, nil
 }
 
 // For returns the limit of the last pattern matching path, or 0 when none
 // does. A validated configuration always opens with config.PatternAll, so 0
 // only comes back from a hand-built list.
-func (l Limits) For(path string) int {
+func (l limits) For(path string) int {
 	limit := 0
 	for _, e := range l.entries {
 		if e.match.MatchString(path) {
@@ -90,30 +90,30 @@ func (l Limits) For(path string) int {
 	return limit
 }
 
-// Resolver answers, for one language, how a file is weighed and limited. It
+// resolver answers, for one language, how a file is weighed and limited. It
 // is built once per run and only read afterwards, so every worker shares it.
-type Resolver struct {
-	weights Weights
-	limits  Limits
+type resolver struct {
+	weights weights
+	limits  limits
 }
 
-// NewResolver compiles the metrics and icp-limits pattern lists cfg holds
+// newResolver compiles the metrics and icp-limits pattern lists cfg holds
 // for lang.
-func NewResolver(cfg *config.Config, lang config.Language) (*Resolver, error) {
-	weights, err := NewWeights(cfg.Metrics[lang])
+func newResolver(cfg *config.Config, lang config.Language) (*resolver, error) {
+	weights, err := newWeights(cfg.Metrics[lang])
 	if err != nil {
 		return nil, fmt.Errorf("metrics.%s: %w", lang, err)
 	}
-	limits, err := NewLimits(cfg.ICPLimits[lang])
+	limits, err := newLimits(cfg.ICPLimits[lang])
 	if err != nil {
 		return nil, fmt.Errorf("icp-limits.%s: %w", lang, err)
 	}
-	return &Resolver{weights: weights, limits: limits}, nil
+	return &resolver{weights: weights, limits: limits}, nil
 }
 
 // Resolve scores the units of the file at path against the weights and the
 // limit that path resolves to.
-func (r *Resolver) Resolve(path string, units []Unit) []UnitReport {
+func (r *resolver) Resolve(path string, units []Unit) []UnitReport {
 	if len(units) == 0 {
 		return nil
 	}
@@ -121,18 +121,18 @@ func (r *Resolver) Resolve(path string, units []Unit) []UnitReport {
 	limit := r.limits.For(path)
 	out := make([]UnitReport, len(units))
 	for i, u := range units {
-		out[i] = Score(u, weights, limit)
+		out[i] = score(u, weights, limit)
 	}
 	return out
 }
 
-// Score applies weights and limit to one unit: a metric absent from weights
+// score applies weights and limit to one unit: a metric absent from weights
 // is dropped from the report, the remaining counts are multiplied by their
 // weight, and the sum is the unit's ICP total. Metrics are summed in
 // config.Metrics order, so the total does not depend on map iteration. The
 // unit's occurrences go through the same filter, so what the report locates
 // is exactly what it counts.
-func Score(unit Unit, weights map[config.MetricID]float64, limit int) UnitReport {
+func score(unit Unit, weights map[config.MetricID]float64, limit int) UnitReport {
 	counts := make(map[config.MetricID]int, len(unit.Counts))
 	scores := make(map[config.MetricID]float64, len(unit.Counts))
 	total := 0.0

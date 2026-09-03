@@ -140,7 +140,9 @@ include: []
 # Defaults written by `cdd init`:
 #   go         -> **/*_test.go · vendor/**
 #   java/kotlin-> **/src/test/** · **/build/** · **/target/**
-#   typescript -> **/*.test.ts · **/*.spec.ts · **/*.d.ts · **/node_modules/** · **/dist/**
+#   typescript -> **/*.test.ts · **/*.spec.ts · **/*.test.tsx · **/*.spec.tsx
+#                 **/*.test.mts · **/*.spec.mts · **/*.test.cts · **/*.spec.cts
+#                 **/*.d.ts · **/*.d.mts · **/*.d.cts · **/node_modules/** · **/dist/**
 exclude:
   - "**/src/test/**"
   - "**/build/**"

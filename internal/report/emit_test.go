@@ -37,6 +37,39 @@ func TestEmitToFile(t *testing.T) {
 	assert.Equal(t, os.FileMode(outputFileMode), info.Mode().Perm())
 }
 
+func TestEmitResolvesRelativeOutputFileAgainstTheRunRoot(t *testing.T) {
+	root := t.TempDir()
+	reports := filepath.Join(root, "reports")
+	require.NoError(t, os.Mkdir(reports, 0o755))
+	absolute := filepath.Join(t.TempDir(), "cdd.json")
+
+	tests := map[string]struct {
+		outputFile string
+		want       string
+	}{
+		"relative": {outputFile: filepath.Join("reports", "cdd.json"), want: filepath.Join(reports, "cdd.json")},
+		"absolute": {outputFile: absolute, want: absolute},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			outputFile := tt.outputFile
+			res := fullRun()
+			res.Root = root
+
+			path, err := Emit(
+				&bytes.Buffer{},
+				config.Reporter{Format: config.FormatJSON, OutputFile: &outputFile},
+				res,
+				Options{},
+			)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, path)
+			assert.FileExists(t, tt.want)
+		})
+	}
+}
+
 func TestEmitTruncatesAnExistingFile(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "cdd-report.txt")
 	require.NoError(t, os.WriteFile(target, bytes.Repeat([]byte("stale\n"), 500), 0o644))

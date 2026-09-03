@@ -48,7 +48,7 @@ func TestCouplingInJSX(t *testing.T) {
 
 // TestIsInternal covers the specifier classification on its own.
 func TestIsInternal(t *testing.T) {
-	prefixes := []string{appPrefix, "~/"}
+	prefixes := []string{appPrefix, "~/", "api"}
 	cases := []struct {
 		spec string
 		want bool
@@ -60,6 +60,10 @@ func TestIsInternal(t *testing.T) {
 		{"..", true},
 		{"@app/users", true},
 		{"~/lib", true},
+		{"api", true},
+		{"api/orders", true},
+		{"api-client", false},
+		{"apify", false},
 		{"@apple/pie", false},
 		{"node:fs", false},
 		{"react", false},
@@ -77,4 +81,16 @@ func TestIsInternal(t *testing.T) {
 // prefix turning every module internal.
 func TestIsInternalIgnoresEmptyPrefix(t *testing.T) {
 	require.False(t, isInternal("react", []string{""}))
+}
+
+func TestEmptyTypeOnlyImportDoesNotContributeCoupling(t *testing.T) {
+	a := newTestAnalyzer(t)
+	res, err := a.Analyze(t.Context(), "empty-type-import.ts", []byte(`
+import type {} from "./types";
+
+export class EmptyTypeImport {}
+`))
+	require.NoError(t, err)
+	require.Empty(t, res.Warnings)
+	requireCount(t, unitNamed(t, res, "EmptyTypeImport"), config.MetricInternalCoupling, 0)
 }

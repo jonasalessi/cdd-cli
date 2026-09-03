@@ -9,20 +9,20 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
-// Matcher decides which files a run analyzes. An empty include list
+// matcher decides which files a run analyzes. An empty include list
 // includes everything, and exclude always wins over include. The defaults
 // for tests and generated code are not built in: cdd init writes them into
 // the configuration, so the matcher only ever reads what the file says.
-type Matcher struct {
+type matcher struct {
 	include []*regexp.Regexp
 	exclude []*regexp.Regexp
 }
 
-// NewMatcher compiles the include and exclude entries of a configuration.
+// newMatcher compiles the include and exclude entries of a configuration.
 // An entry prefixed with config.RegexPrefix is a Go RE2 regex matched
 // anywhere in the path; every other entry is a glob, with the optional
 // config.GlobPrefix, matched against the whole path.
-func NewMatcher(include, exclude []string) (*Matcher, error) {
+func newMatcher(include, exclude []string) (*matcher, error) {
 	in, err := compilePatterns(include)
 	if err != nil {
 		return nil, fmt.Errorf("include: %w", err)
@@ -31,12 +31,12 @@ func NewMatcher(include, exclude []string) (*Matcher, error) {
 	if err != nil {
 		return nil, fmt.Errorf("exclude: %w", err)
 	}
-	return &Matcher{include: in, exclude: ex}, nil
+	return &matcher{include: in, exclude: ex}, nil
 }
 
 // Match reports whether the file at path is analyzed. path is
 // slash-separated and relative to the configuration file.
-func (m *Matcher) Match(path string) bool {
+func (m *matcher) Match(path string) bool {
 	if matchesAny(m.exclude, path) {
 		return false
 	}
@@ -81,6 +81,9 @@ func compilePattern(entry string) (*regexp.Regexp, error) {
 		return compiled, nil
 	}
 	glob, _ := strings.CutPrefix(entry, config.GlobPrefix)
+	for strings.HasPrefix(glob, "./") {
+		glob = strings.TrimPrefix(glob, "./")
+	}
 	return compileGlob(glob)
 }
 

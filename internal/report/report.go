@@ -99,6 +99,9 @@ func Emit(stdout io.Writer, r config.Reporter, res analyze.RunResult, opts Optio
 		return "", err
 	}
 	path := *r.OutputFile
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(res.Root, path)
+	}
 	if err := writeFile(path, buf.Bytes()); err != nil {
 		return "", err
 	}

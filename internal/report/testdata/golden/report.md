@@ -16,10 +16,8 @@ Warnings:
 
 - unsupported syntax at 42:7, unit skipped
 
-## Warnings
-
-- the legacy mode is reported, not enforced yet
-
 ## Summary
+
+Violations block this run.
 
 3 units analyzed, 1 over limit, elapsed 1.234s.

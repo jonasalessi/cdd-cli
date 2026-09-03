@@ -1,6 +1,7 @@
 package typescript
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,8 +15,27 @@ func TestSpecID(t *testing.T) {
 	assert.Len(t, Spec().NotApplicable, 0, "every metric applies to typescript")
 }
 
+func TestSpecExtensionsAndDefaultExcludes(t *testing.T) {
+	wantExtensions := []string{".ts", ".tsx", ".mts", ".cts"}
+	wantExcludes := []string{
+		"**/*.test.ts", "**/*.spec.ts",
+		"**/*.test.tsx", "**/*.spec.tsx",
+		"**/*.test.mts", "**/*.spec.mts",
+		"**/*.test.cts", "**/*.spec.cts",
+		"**/*.d.ts", "**/*.d.mts", "**/*.d.cts",
+		"**/node_modules/**", "**/dist/**",
+	}
+
+	spec := Spec()
+	assert.Equal(t, wantExtensions, spec.Extensions)
+	assert.Equal(t, wantExcludes, spec.DefaultExcludes)
+
+	spec.Extensions[0] = ".js"
+	assert.Equal(t, wantExtensions, Spec().Extensions, "callers cannot mutate the extension roster")
+}
+
 func TestDetectPackagesReadsTSConfigWithComments(t *testing.T) {
-	got, err := Spec().DetectPackages(filepath.Join("testdata", "aliases"))
+	got, err := Spec().DetectPackages(t.Context(), filepath.Join("testdata", "aliases"))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"@app/", "@lib/"}, got)
 }
@@ -23,15 +43,25 @@ func TestDetectPackagesReadsTSConfigWithComments(t *testing.T) {
 func TestDetectPackagesOfABrokenTSConfig(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "tsconfig.json"), []byte("{not json"), 0o644))
-	got, err := Spec().DetectPackages(dir)
+	got, err := Spec().DetectPackages(t.Context(), dir)
 	require.NoError(t, err, "a tsconfig that does not parse is not an error")
 	assert.Nil(t, got)
 }
 
 func TestDetectPackagesWithoutTSConfig(t *testing.T) {
-	got, err := Spec().DetectPackages(t.TempDir())
+	got, err := Spec().DetectPackages(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	assert.Nil(t, got)
+}
+
+func TestDetectPackagesCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	got, err := Spec().DetectPackages(ctx, filepath.Join("testdata", "aliases"))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, got)
 }
 
 func TestStripJSONC(t *testing.T) {

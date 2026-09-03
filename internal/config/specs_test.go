@@ -1,5 +1,7 @@
 package config
 
+import "context"
+
 // The config tests never import the real registry: they run against the
 // synthetic languages below, so adding a real language changes no golden
 // here. The wording and defaults mirror what the golden files encode.
@@ -14,7 +16,7 @@ const (
 	langDelta Language = "delta"
 )
 
-func noPackages(string) ([]string, error) { return nil, nil }
+func noPackages(context.Context, string) ([]string, error) { return nil, nil }
 
 func alphaSpec() LanguageSpec {
 	return LanguageSpec{

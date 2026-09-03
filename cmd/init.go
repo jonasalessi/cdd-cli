@@ -106,7 +106,7 @@ func runInit(c *cobra.Command, opts *initOptions, specs []config.LanguageSpec) e
 	if err != nil || done {
 		return err
 	}
-	answers, det, err := gatherDefaults(opts, specs)
+	answers, det, err := gatherDefaults(c.Context(), opts, specs)
 	if err != nil {
 		return err
 	}
@@ -158,8 +158,11 @@ func guardExisting(c *cobra.Command, path string, force, interactive bool) (effe
 
 // gatherDefaults runs language and package detection and folds the flags in;
 // a flag always wins over a detected value.
-func gatherDefaults(opts *initOptions, specs []config.LanguageSpec) (initcmd.Answers, detect.Detected, error) {
-	ctx := context.Background()
+func gatherDefaults(
+	ctx context.Context,
+	opts *initOptions,
+	specs []config.LanguageSpec,
+) (initcmd.Answers, detect.Detected, error) {
 	if opts.scanTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, opts.scanTimeout)
@@ -194,12 +197,16 @@ func gatherDefaults(opts *initOptions, specs []config.LanguageSpec) (initcmd.Ans
 			if !ok {
 				continue // initcmd.Build reports the unknown id
 			}
-			pkgs, err := spec.DetectPackages(".")
-			if err != nil {
-				return a, det, err
-			}
+			pkgs, err := spec.DetectPackages(ctx, ".")
 			if len(pkgs) > 0 {
 				a.PackagesByLanguage[lang] = pkgs
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				det.Truncated = true
+				break
+			}
+			if err != nil {
+				return a, det, err
 			}
 		}
 	}
@@ -213,6 +220,7 @@ func writeConfig(c *cobra.Command, a initcmd.Answers, specs []config.LanguageSpe
 	if err != nil {
 		return err
 	}
+	warnings = append(warnings, unavailableAnalyzerWarnings(cfg)...)
 	for _, warning := range warnings {
 		fmt.Fprintf(c.ErrOrStderr(), "warning: %s\n", warning)
 	}
@@ -224,6 +232,18 @@ func writeConfig(c *cobra.Command, a initcmd.Answers, specs []config.LanguageSpe
 	}
 	fmt.Fprintln(c.OutOrStdout(), summary(path, cfg, specs))
 	return nil
+}
+
+// unavailableAnalyzerWarnings reports configured registry entries cdd can
+// detect and render but cannot analyze yet.
+func unavailableAnalyzerWarnings(cfg *config.Config) []string {
+	var warnings []string
+	for _, lang := range languages.All() {
+		if _, configured := cfg.Metrics[lang.Spec.ID]; configured && lang.NewAnalyzer == nil {
+			warnings = append(warnings, fmt.Sprintf("no analyzer for %s yet", lang.Spec.ID))
+		}
+	}
+	return warnings
 }
 
 // summary is the receipt printed after a successful write, e.g.

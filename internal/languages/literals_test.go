@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/jonasalessi/cdd-cli/internal/config"
@@ -119,6 +120,13 @@ func inspect(fset *token.FileSet, file *ast.File, rel string, forbidden map[stri
 	report := func(pos token.Pos, msg string) {
 		out = append(out, rel+":"+strconv.Itoa(fset.Position(pos).Line)+": "+msg)
 	}
+	for _, imp := range file.Imports {
+		importPath, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || !forbiddenConcreteAnalyzerImport(rel, importPath) {
+			continue
+		}
+		report(imp.Path.Pos(), "concrete analyzer import belongs in internal/languages or its own directory")
+	}
 	tags := map[*ast.BasicLit]bool{}
 	inConfig := file.Name.Name == "config"
 	ast.Inspect(file, func(n ast.Node) bool {
@@ -134,12 +142,6 @@ func inspect(fset *token.FileSet, file *ast.File, rel string, forbidden map[stri
 			if v, err := strconv.Unquote(n.Value); err == nil && forbidden[v] {
 				report(n.Pos(), "vocabulary literal "+n.Value+" belongs in vocabulary.go or a spec.go")
 			}
-		case *ast.CaseClause:
-			for _, e := range n.List {
-				if isLanguageConstant(e) && !languageDir(rel) {
-					report(e.Pos(), "switch on a language id; put the behavior in the language's spec")
-				}
-			}
 		case *ast.CompositeLit:
 			if isLanguageTable(n, inConfig) && !languageDir(rel) {
 				report(n.Pos(), "language-keyed table; put the data in each language's spec")
@@ -150,14 +152,19 @@ func inspect(fset *token.FileSet, file *ast.File, rel string, forbidden map[stri
 	return out
 }
 
-// isLanguageConstant matches config.Lang… selectors.
-func isLanguageConstant(e ast.Expr) bool {
-	sel, ok := e.(*ast.SelectorExpr)
-	if !ok {
+const analyzerImportPrefix = "github.com/jonasalessi/cdd-cli/internal/analyze/"
+
+// forbiddenConcreteAnalyzerImport reports whether rel imports a concrete
+// language analyzer outside the registry or that analyzer's own directory.
+func forbiddenConcreteAnalyzerImport(rel, importPath string) bool {
+	analyzer, ok := strings.CutPrefix(importPath, analyzerImportPrefix)
+	if !ok || analyzer == "" || strings.Contains(analyzer, "/") {
 		return false
 	}
-	pkg, ok := sel.X.(*ast.Ident)
-	return ok && pkg.Name == "config" && strings.HasPrefix(sel.Sel.Name, "Lang")
+	if strings.HasPrefix(rel, "internal/languages/") {
+		return false
+	}
+	return path.Dir(rel) != "internal/analyze/"+analyzer
 }
 
 // isLanguageTable matches a non-empty map[config.Language]… literal, or
@@ -198,4 +205,46 @@ func TestLiteralsHelpers(t *testing.T) {
 
 	_, err := os.Stat(filepath.Join(moduleRoot, "go.mod"))
 	require.NoError(t, err, "moduleRoot must be the repository root")
+}
+
+func TestInspectRejectsConcreteAnalyzerImportsOutsideTheirBoundaries(t *testing.T) {
+	tests := map[string]struct {
+		rel        string
+		importPath string
+		violation  bool
+	}{
+		"command cannot import a concrete analyzer": {
+			rel:        "cmd/check.go",
+			importPath: "github.com/jonasalessi/cdd-cli/internal/analyze/typescript",
+			violation:  true,
+		},
+		"registry can import a concrete analyzer": {
+			rel:        "internal/languages/languages.go",
+			importPath: "github.com/jonasalessi/cdd-cli/internal/analyze/typescript",
+		},
+		"analyzer can import its own package": {
+			rel:        "internal/analyze/typescript/helper.go",
+			importPath: "github.com/jonasalessi/cdd-cli/internal/analyze/typescript",
+		},
+		"other analyzers cannot import a concrete analyzer": {
+			rel:        "internal/analyze/java/helper.go",
+			importPath: "github.com/jonasalessi/cdd-cli/internal/analyze/typescript",
+			violation:  true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			file, err := parser.ParseFile(
+				fset,
+				tt.rel,
+				"package test\nimport _ \""+tt.importPath+"\"\n",
+				parser.SkipObjectResolution,
+			)
+			require.NoError(t, err)
+
+			violations := inspect(fset, file, tt.rel, nil)
+			assert.Equal(t, tt.violation, len(violations) > 0, violations)
+		})
+	}
 }

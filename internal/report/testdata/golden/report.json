@@ -1,5 +1,6 @@
 {
   "root": "/projects/shop",
+  "blocked": true,
   "filter": "violations",
   "explain": false,
   "partial": false,
@@ -40,9 +41,6 @@
         "unsupported syntax at 42:7, unit skipped"
       ]
     }
-  ],
-  "warnings": [
-    "the legacy mode is reported, not enforced yet"
   ],
   "summary": {
     "units": 3,

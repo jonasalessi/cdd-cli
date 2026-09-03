@@ -1,6 +1,9 @@
 package config
 
-import "slices"
+import (
+	"context"
+	"slices"
+)
 
 // LanguageSpec is everything the configuration side of cdd knows about one
 // language: its id, how it is presented, which files belong to it, which
@@ -34,7 +37,7 @@ type LanguageSpec struct {
 	// DetectPackages guesses the internal package prefixes of the project at
 	// root. A missing manifest is not an error; the result is whatever was
 	// found.
-	DetectPackages func(root string) ([]string, error)
+	DetectPackages func(ctx context.Context, root string) ([]string, error)
 }
 
 // Applicable returns the metrics the analyzer can count, in Metrics order.

@@ -14,14 +14,14 @@ func TestSpecID(t *testing.T) {
 }
 
 func TestDetectPackagesSkipsKotlinFiles(t *testing.T) {
-	got, err := Spec().DetectPackages(filepath.Join("testdata", "project"))
+	got, err := Spec().DetectPackages(t.Context(), filepath.Join("testdata", "project"))
 	require.NoError(t, err)
 	assert.Equal(t, []string{"com.acme.billing", "com.acme.shared"}, got,
 		"the kotlin source under com.acme.other is not read")
 }
 
 func TestDetectPackagesEmptyProject(t *testing.T) {
-	got, err := Spec().DetectPackages(t.TempDir())
+	got, err := Spec().DetectPackages(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }

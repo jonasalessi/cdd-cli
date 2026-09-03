@@ -172,7 +172,7 @@ cdd check src/order/service.ts,src/order/repository.ts --explain --format json
 
 ```
 $ cdd check
-cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
+cdd check: FAIL violations=1 units=2 blocked=true root=. elapsed=1ms
 
 violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
   metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
@@ -189,7 +189,7 @@ counts the whole run either way, so `units=2` includes what is not listed.
 
 ```
 $ cdd check --all
-cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
+cdd check: FAIL violations=1 units=2 blocked=true root=. elapsed=1ms
 
 violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
   metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
@@ -203,7 +203,7 @@ line per counted construct, saying where it is and what it contributed:
 
 ```
 $ cdd check --explain
-cdd check: FAIL violations=1 units=2 root=. elapsed=1ms
+cdd check: FAIL violations=1 units=2 blocked=true root=. elapsed=1ms
 
 violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
   metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
@@ -247,7 +247,9 @@ with `format: json` and turn each occurrence into an inline hint.
 at the end, and a run cut short by the timeout adds `partial=true` to the
 first line. The `json` and `xml` reports carry the same filter under a
 `filter` field, `violations` or `all`, so a reader knows why a unit is
-missing.
+missing. The console headline uses `PASS` when there are no violations,
+`WARN` when violations do not block the run, and `FAIL` when they do; it
+always includes `blocked=true` or `blocked=false`.
 
 | Argument or flag | What it does |
 | --- | --- |
@@ -265,9 +267,14 @@ missing.
 | `icp-limits` | The limit each unit is compared with. The last matching pattern wins. |
 | `enforcement` | Whether a unit over its limit fails the run. |
 | `timeout` | Wall-clock budget for the whole run. `0s` removes the budget. |
-| `reporter` | `format` picks `console`, `json`, `xml` or `markdown` unless `--format` says otherwise; `outputFile` writes the report to that path instead of stdout. |
+| `reporter` | `format` picks `console`, `json`, `xml` or `markdown` unless `--format` says otherwise; `outputFile` writes the report to that path instead of stdout. Relative paths are resolved from the configuration directory; absolute paths are unchanged. |
 | `internal_coupling` | Which import prefixes count as internal coupling rather than external. |
 | `include` / `exclude` | Which files are analyzed. `exclude` wins over `include`. |
+
+Glob paths are relative to the configuration directory, and may begin with
+`./`. An implicit full-tree walk prunes `.git`, `node_modules`, `vendor`,
+`build`, `dist`, `target`, and `out`; explicitly naming one of those
+directories as a `check` path opts into analyzing it.
 
 Only `strict_all` blocks today. `strict_on_new_only` and `boy_scout` need the
 git history and the baseline store, neither of which exists yet, so `check`

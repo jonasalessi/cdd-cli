@@ -68,11 +68,12 @@ func occurrence(id config.MetricID, line, col, endLine, endCol, count int, score
 	}
 }
 
-// fullRun is a finished run over two files: three units, one of them over
-// its limit, one file warning and one run warning.
+// fullRun is a finished blocking run over two files: three units, one of them
+// over its limit, and one file warning.
 func fullRun() analyze.RunResult {
 	return analyze.RunResult{
-		Root: "/projects/shop",
+		Root:    "/projects/shop",
+		Blocked: true,
 		Files: []analyze.FileReport{
 			{
 				Path:     "src/checkout.ts",
@@ -89,8 +90,7 @@ func fullRun() analyze.RunResult {
 				Units:    []analyze.UnitReport{formatMoneyUnit()},
 			},
 		},
-		Warnings: []string{"the legacy mode is reported, not enforced yet"},
-		Elapsed:  fixtureElapsed,
+		Elapsed: fixtureElapsed,
 	}
 }
 

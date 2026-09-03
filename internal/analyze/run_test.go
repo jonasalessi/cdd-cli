@@ -147,6 +147,21 @@ func TestRunPathsEntersANamedSkippedDirectory(t *testing.T) {
 	assert.Equal(t, []string{"node_modules/dep/a.alpha"}, paths(got.Files), "the caller asked for it")
 }
 
+func TestRunPathsRejectsASymlinkedDirectory(t *testing.T) {
+	root := writeTree(t, map[string]string{"target/a.alpha": "a"})
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(filepath.Join(root, "target"), link); err != nil {
+		t.Skipf("cannot create directory symlink: %v", err)
+	}
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+
+	_, err := runPaths(t, root, testConfig(langAlpha), []string{"linked"}, alpha)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "linked")
+	assert.Contains(t, err.Error(), "symlinked directory")
+}
+
 func TestRunPathsRejectsAFileNoLanguageClaims(t *testing.T) {
 	root := writeTree(t, map[string]string{"README.md": "docs"})
 	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha"}
@@ -174,6 +189,22 @@ func TestRunPathsReportsAMissingPath(t *testing.T) {
 	_, err := runPaths(t, root, testConfig(langAlpha), []string{"src/missing.alpha"}, alpha)
 
 	require.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestRunPathsCanceledContextStopsCollection(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha"}
+
+	got, err := Run(ctx, Request{
+		Root:      t.TempDir(),
+		Config:    testConfig(langAlpha),
+		Languages: []Language{alpha.language()},
+		Paths:     []string{"missing.alpha"},
+	})
+
+	require.ErrorIs(t, err, ErrTimeout)
+	assert.True(t, got.Partial)
 }
 
 func TestRunResolvesWeightsAndLimitsPerFile(t *testing.T) {
@@ -216,6 +247,40 @@ func TestRunResolvesWeightsAndLimitsPerFile(t *testing.T) {
 	assert.Equal(t, 2, got.UnitCount())
 }
 
+func TestRunEvaluatesTheBlockingOutcome(t *testing.T) {
+	tests := map[string]struct {
+		counts      map[config.MetricID]int
+		enforcement config.Enforcement
+		blocked     bool
+	}{
+		"no violations never block": {
+			enforcement: config.Enforcement{BlockOnCI: true, LegacyMode: config.ModeStrictAll},
+		},
+		"non-blocking enforcement warns": {
+			counts:      map[config.MetricID]int{config.MetricCodeBranch: 11},
+			enforcement: config.Enforcement{LegacyMode: config.ModeMeasureOnly},
+		},
+		"blocking enforcement fails": {
+			counts:      map[config.MetricID]int{config.MetricCodeBranch: 11},
+			enforcement: config.Enforcement{BlockOnCI: true, LegacyMode: config.ModeStrictAll},
+			blocked:     true,
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			root := writeTree(t, map[string]string{"a.alpha": "a"})
+			cfg := testConfig(langAlpha)
+			cfg.Enforcement = tt.enforcement
+			alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", tt.counts)}
+
+			got, err := run(t, root, cfg, alpha)
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.blocked, got.Blocked)
+		})
+	}
+}
+
 func TestRunDropsDisabledMetrics(t *testing.T) {
 	root := writeTree(t, map[string]string{"a.alpha": "a"})
 	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", map[config.MetricID]int{
@@ -253,7 +318,8 @@ func TestRunFeedsInternalPrefixesToEveryAnalyzer(t *testing.T) {
 	cfg.InternalCoupling = config.InternalCoupling{AutoDetect: true, Packages: []string{"@app/", "com.acme"}}
 	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
 	entry := alpha.language()
-	entry.Spec.DetectPackages = func(dir string) ([]string, error) {
+	entry.Spec.DetectPackages = func(ctx context.Context, dir string) ([]string, error) {
+		assert.NoError(t, ctx.Err())
 		assert.Equal(t, root, dir, "detection runs against the run root")
 		return []string{"@lib/", "@app/"}, nil
 	}
@@ -273,7 +339,7 @@ func TestRunIgnoresDetectionWhenAutoDetectIsOff(t *testing.T) {
 	cfg.InternalCoupling = config.InternalCoupling{Packages: []string{"com.acme"}}
 	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
 	entry := alpha.language()
-	entry.Spec.DetectPackages = func(string) ([]string, error) {
+	entry.Spec.DetectPackages = func(context.Context, string) ([]string, error) {
 		t.Error("detection must not run when auto_detect is off")
 		return nil, nil
 	}
@@ -289,7 +355,9 @@ func TestRunReportsAFailingPackageDetection(t *testing.T) {
 	cfg := testConfig(langAlpha)
 	cfg.InternalCoupling = config.InternalCoupling{AutoDetect: true}
 	entry := (&fakeLanguage{id: langAlpha, ext: ".alpha"}).language()
-	entry.Spec.DetectPackages = func(string) ([]string, error) { return nil, errors.New("no manifest") }
+	entry.Spec.DetectPackages = func(context.Context, string) ([]string, error) {
+		return nil, errors.New("no manifest")
+	}
 
 	_, err := Run(t.Context(), Request{Root: root, Config: cfg, Languages: []Language{entry}})
 
@@ -330,7 +398,7 @@ func TestRunReportsFilesInPathOrder(t *testing.T) {
 	assert.Equal(t, []string{"a.alpha", "a/a/c.alpha", "a/b.alpha", "m/n/o/d.alpha", "z.alpha"}, paths(got.Files))
 }
 
-func TestRunRejectsALanguageWithoutAnAnalyzer(t *testing.T) {
+func TestRunRejectsSelectedUnavailableLanguage(t *testing.T) {
 	root := writeTree(t, map[string]string{"a.alpha": "a"})
 	entry := Language{Spec: config.LanguageSpec{ID: langAlpha, Extensions: []string{".alpha"}}}
 
@@ -340,12 +408,82 @@ func TestRunRejectsALanguageWithoutAnAnalyzer(t *testing.T) {
 	assert.Equal(t, "no analyzer for alpha yet", err.Error())
 }
 
-func TestRunRejectsAMissingAnalyzerEvenOnAnEmptyTree(t *testing.T) {
+func TestRunAllowsUnselectedUnavailableLanguage(t *testing.T) {
 	entry := Language{Spec: config.LanguageSpec{ID: langAlpha, Extensions: []string{".alpha"}}}
 
-	_, err := Run(t.Context(), Request{Root: t.TempDir(), Config: testConfig(langAlpha), Languages: []Language{entry}})
+	got, err := Run(t.Context(), Request{
+		Root:      t.TempDir(),
+		Config:    testConfig(langAlpha),
+		Languages: []Language{entry},
+	})
 
-	require.Error(t, err, "the check is up front, so it does not depend on the tree")
+	require.NoError(t, err)
+	assert.Empty(t, got.Files)
+}
+
+func TestRunMixedConfigurationOnlyInitializesSelectedLanguage(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"src/a.alpha": "a",
+		"src/b.beta":  "b",
+	})
+	cfg := testConfig(langAlpha, langBeta)
+	cfg.InternalCoupling.AutoDetect = true
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+	beta := Language{Spec: config.LanguageSpec{
+		ID:         langBeta,
+		Extensions: []string{".beta"},
+		DetectPackages: func(context.Context, string) ([]string, error) {
+			t.Error("an unselected language must not detect packages")
+			return nil, nil
+		},
+	}}
+
+	got, err := Run(t.Context(), Request{
+		Root:      root,
+		Config:    cfg,
+		Languages: []Language{alpha.language(), beta},
+		Paths:     []string{"src/a.alpha"},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"src/a.alpha"}, paths(got.Files))
+}
+
+func TestRunSelectedUnavailableLanguageStopsBeforeAnalysis(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"src/a.alpha": "a",
+		"src/b.beta":  "b",
+	})
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+	beta := Language{Spec: config.LanguageSpec{ID: langBeta, Extensions: []string{".beta"}}}
+
+	_, err := Run(t.Context(), Request{
+		Root:      root,
+		Config:    testConfig(langAlpha, langBeta),
+		Languages: []Language{alpha.language(), beta},
+	})
+
+	require.EqualError(t, err, "no analyzer for beta yet")
+	assert.Empty(t, alpha.instances(), "no candidate is analyzed before every selected language is available")
+}
+
+func TestRunScanTimeoutCancelsPackageDetection(t *testing.T) {
+	root := writeTree(t, map[string]string{"src/a.alpha": "a"})
+	cfg := testConfig(langAlpha)
+	cfg.Timeout = 20 * time.Millisecond
+	cfg.InternalCoupling.AutoDetect = true
+	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha", result: oneUnit("A", nil)}
+	entry := alpha.language()
+	entry.Spec.DetectPackages = func(ctx context.Context, _ string) ([]string, error) {
+		<-ctx.Done()
+		return []string{"partial.prefix"}, ctx.Err()
+	}
+
+	got, err := Run(t.Context(), Request{Root: root, Config: cfg, Languages: []Language{entry}})
+
+	require.ErrorIs(t, err, ErrTimeout)
+	assert.True(t, got.Partial)
+	assert.Empty(t, alpha.instances(), "the deadline expires before analyzer construction")
 }
 
 func TestRunRejectsAnUnknownLanguage(t *testing.T) {
@@ -379,8 +517,9 @@ func TestRunRejectsAnInvalidWeightPattern(t *testing.T) {
 	cfg := testConfig(langAlpha)
 	cfg.Metrics[langAlpha] = config.PatternWeights{{Pattern: "("}}
 	alpha := &fakeLanguage{id: langAlpha, ext: ".alpha"}
+	root := writeTree(t, map[string]string{"a.alpha": "a"})
 
-	_, err := run(t, t.TempDir(), cfg, alpha)
+	_, err := run(t, root, cfg, alpha)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "metrics.alpha")
@@ -434,10 +573,43 @@ func TestRunReturnsAPartialResultWhenTheTimeoutElapses(t *testing.T) {
 	require.ErrorIs(t, err, ErrTimeout)
 	assert.Contains(t, err.Error(), "timeout of 30ms elapsed")
 	assert.True(t, got.Partial)
+	assert.False(t, got.Blocked)
 	assert.Empty(t, got.Files, "every analyzer was still waiting")
 	require.Len(t, got.Warnings, 1)
 	assert.Equal(t, "timeout of 30ms elapsed; 0 files analyzed, 4 skipped", got.Warnings[0])
 	assert.Equal(t, int64(len(alpha.instances())), alpha.closes.Load(), "the workers still release their analyzers")
+}
+
+func TestRunPreservesFinalizedBlockingOutcomeWhenCancellationReturnsAPartialResult(t *testing.T) {
+	root := writeTree(t, map[string]string{"a.alpha": "a", "b.alpha": "b"})
+	cfg := testConfig(langAlpha)
+	cfg.Timeout = time.Second
+	blockStarted := make(chan struct{}, 1)
+	alpha := &fakeLanguage{
+		id:           langAlpha,
+		ext:          ".alpha",
+		result:       oneUnit("A", map[config.MetricID]int{config.MetricCodeBranch: 11}),
+		block:        true,
+		blockPath:    "b.alpha",
+		blockStarted: blockStarted,
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	go func() {
+		select {
+		case <-blockStarted:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+
+	got, err := Run(ctx, Request{Root: root, Config: cfg, Languages: []Language{alpha.language()}})
+
+	require.ErrorIs(t, err, ErrTimeout)
+	assert.True(t, got.Partial)
+	assert.True(t, got.Blocked, "partial results must retain the finalized blocking outcome")
+	assert.Equal(t, []string{"a.alpha"}, paths(got.Files))
 }
 
 func TestRunReturnsAPartialResultWhenTheCallerCancels(t *testing.T) {

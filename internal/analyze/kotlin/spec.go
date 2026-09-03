@@ -4,6 +4,8 @@
 package kotlin
 
 import (
+	"context"
+
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/jvm"
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
@@ -32,6 +34,6 @@ func Spec() config.LanguageSpec {
 
 // detectPackages reduces the package declarations of the Kotlin sources
 // under root to their shortest telling prefixes.
-func detectPackages(root string) ([]string, error) {
-	return jvm.Prefixes(root, extensions), nil
+func detectPackages(ctx context.Context, root string) ([]string, error) {
+	return jvm.Prefixes(ctx, root, extensions)
 }

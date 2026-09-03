@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -99,7 +98,7 @@ func runCheck(c *cobra.Command, path string, args []string, format string, opts 
 	if format != "" {
 		cfg.Reporter.Format = format
 	}
-	res, runErr := analyze.Run(commandContext(c), analyze.Request{
+	res, runErr := analyze.Run(c.Context(), analyze.Request{
 		Root:      root,
 		Config:    cfg,
 		Languages: languages.All(),
@@ -115,7 +114,7 @@ func runCheck(c *cobra.Command, path string, args []string, format string, opts 
 		fmt.Fprintf(c.ErrOrStderr(), "cdd: %v\n", runErr)
 		return exitCodeError{code: exitTimeout}
 	}
-	return violationExit(res, cfg.Enforcement)
+	return violationExit(res)
 }
 
 // validateFormat rejects a --format value the reporter cannot render. An
@@ -186,15 +185,6 @@ func loadCheckConfig(c *cobra.Command, path string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// commandContext prefers the context cobra carries, so a caller that cancels
-// the command also stops the analysis.
-func commandContext(c *cobra.Command) context.Context {
-	if ctx := c.Context(); ctx != nil {
-		return ctx
-	}
-	return context.Background()
-}
-
 // emitReport renders the run where the reporter points and prints the
 // receipt when that was a file.
 func emitReport(c *cobra.Command, r config.Reporter, res analyze.RunResult, opts report.Options) error {
@@ -208,10 +198,10 @@ func emitReport(c *cobra.Command, r config.Reporter, res analyze.RunResult, opts
 	return nil
 }
 
-// violationExit turns the reported violations into the command's exit code.
-// The report is already out, so a blocking run only carries the code.
-func violationExit(res analyze.RunResult, e config.Enforcement) error {
-	if res.Violations() > 0 && e.Blocks() {
+// violationExit turns the finalized blocking outcome into the command's exit
+// code. The report is already out, so a blocking run only carries the code.
+func violationExit(res analyze.RunResult) error {
+	if res.Blocked {
 		return exitCodeError{code: exitViolations}
 	}
 	return nil

@@ -105,6 +105,11 @@ func markdownSummary(p *printer, doc Report) {
 	if doc.Partial {
 		p.printf("Partial result: the timeout elapsed before every file was analyzed.\n\n")
 	}
+	if doc.Blocked {
+		p.printf("Violations block this run.\n\n")
+	} else {
+		p.printf("Violations do not block this run.\n\n")
+	}
 	p.printf("%d units analyzed, %d over limit, elapsed %s.\n",
 		doc.Summary.Units, doc.Summary.Violations, formatElapsed(doc.ElapsedMS))
 }

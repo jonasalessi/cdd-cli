@@ -14,16 +14,11 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
-// Language is the registry entry: the data side of a language and its
-// analyzer constructor. A nil NewAnalyzer means the language has no analyzer
-// yet; cdd check must report that as an error, never as zero ICPs.
-type Language = analyze.Language
-
 // All returns every supported language in registration order, which is the
 // order languages are listed and rendered everywhere. Each call returns a
 // fresh slice.
-func All() []Language {
-	return []Language{
+func All() []analyze.Language {
+	return []analyze.Language{
 		{Spec: golang.Spec()},
 		{Spec: java.Spec()},
 		{Spec: kotlin.Spec()},

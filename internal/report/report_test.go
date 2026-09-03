@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -86,11 +87,12 @@ func TestJSONRoundTrip(t *testing.T) {
 	require.NoError(t, json.Unmarshal(data, &doc))
 
 	assert.Equal(t, "/projects/shop", doc.Root)
+	assert.True(t, doc.Blocked)
 	assert.Equal(t, filterViolations, doc.Filter)
 	assert.False(t, doc.Partial)
 	assert.Equal(t, int64(1234), doc.ElapsedMS)
 	assert.Equal(t, Summary{Units: 3, Violations: 1}, doc.Summary, "the summary counts the run, not the listing")
-	assert.Equal(t, []string{"the legacy mode is reported, not enforced yet"}, doc.Warnings)
+	assert.Empty(t, doc.Warnings)
 
 	require.Len(t, doc.Files, 1, "src/money.ts has no violation and no warning")
 	first := doc.Files[0]
@@ -326,8 +328,7 @@ func TestMetricsFollowVocabularyOrder(t *testing.T) {
 func TestConsoleShapesTheRun(t *testing.T) {
 	out := render(t, config.FormatConsole, fullRun())
 	assert.True(t, strings.HasPrefix(out,
-		"cdd check: FAIL violations=1 units=3 root=/projects/shop elapsed=1.234s\n"+
-			"warning: the legacy mode is reported, not enforced yet\n"))
+		"cdd check: FAIL violations=1 units=3 blocked=true root=/projects/shop elapsed=1.234s\n"))
 	assert.Contains(t, out,
 		"\nviolation: src/checkout.ts:12:3 class CheckoutService icp=14.5 limit=10 over=4.5\n"+
 			"  metrics: code_branch=6 external_coupling=11x0.5 condition=3\n")
@@ -351,7 +352,52 @@ func TestConsoleAllListsEveryUnit(t *testing.T) {
 
 func TestConsolePassAndPartial(t *testing.T) {
 	out := render(t, config.FormatConsole, partialRun())
-	assert.Equal(t, "cdd check: PASS violations=0 units=0 root=/projects/shop elapsed=1.234s partial=true\n", out)
+	assert.Equal(t,
+		"cdd check: PASS violations=0 units=0 blocked=false root=/projects/shop elapsed=1.234s partial=true\n",
+		out,
+	)
+}
+
+func TestReportsRenderTheSharedBlockingOutcome(t *testing.T) {
+	tests := map[string]struct {
+		res            analyze.RunResult
+		consoleStatus  string
+		markdownPhrase string
+	}{
+		"pass": {
+			res:            analyze.RunResult{Root: "/projects/shop"},
+			consoleStatus:  "PASS",
+			markdownPhrase: "Violations do not block this run.",
+		},
+		"warn": {
+			res: analyze.RunResult{
+				Root:  "/projects/shop",
+				Files: []analyze.FileReport{{Units: []analyze.UnitReport{overUnit("warn", 11, 1)}}},
+			},
+			consoleStatus:  "WARN",
+			markdownPhrase: "Violations do not block this run.",
+		},
+		"fail": {
+			res: analyze.RunResult{
+				Root:    "/projects/shop",
+				Blocked: true,
+				Files:   []analyze.FileReport{{Units: []analyze.UnitReport{overUnit("fail", 11, 1)}}},
+			},
+			consoleStatus:  "FAIL",
+			markdownPhrase: "Violations block this run.",
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			console := render(t, config.FormatConsole, tt.res)
+			assert.Contains(t, console, "cdd check: "+tt.consoleStatus)
+			assert.Contains(t, console, "blocked="+strconv.FormatBool(tt.res.Blocked))
+
+			assert.Contains(t, render(t, config.FormatJSON, tt.res), `"blocked": `+strconv.FormatBool(tt.res.Blocked))
+			assert.Contains(t, render(t, config.FormatXML, tt.res), `blocked="`+strconv.FormatBool(tt.res.Blocked)+`"`)
+			assert.Contains(t, render(t, config.FormatMarkdown, tt.res), tt.markdownPhrase)
+		})
+	}
 }
 
 func TestConsoleOrdersViolationsByHowFarOver(t *testing.T) {
@@ -474,7 +520,8 @@ func TestXMLShapesTheRun(t *testing.T) {
 	out := render(t, config.FormatXML, fullRun())
 	assert.True(t, strings.HasPrefix(out, `<?xml version="1.0" encoding="UTF-8"?>`))
 	assert.Contains(t, out,
-		`<report root="/projects/shop" filter="violations" explain="false" partial="false" elapsed_ms="1234">`)
+		`<report root="/projects/shop" blocked="true" filter="violations" `+
+			`explain="false" partial="false" elapsed_ms="1234">`)
 	assert.Contains(t, out, `<summary units="3" violations="1">`)
 	assert.Contains(t, out, `<metric id="external_coupling" count="11" score="5.5">`)
 	assert.True(t, strings.HasSuffix(out, "</report>\n"))

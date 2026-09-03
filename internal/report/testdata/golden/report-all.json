@@ -1,5 +1,6 @@
 {
   "root": "/projects/shop",
+  "blocked": true,
   "filter": "all",
   "explain": false,
   "partial": false,
@@ -93,9 +94,6 @@
         }
       ]
     }
-  ],
-  "warnings": [
-    "the legacy mode is reported, not enforced yet"
   ],
   "summary": {
     "units": 3,

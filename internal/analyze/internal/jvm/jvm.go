@@ -5,6 +5,8 @@ package jvm
 
 import (
 	"bufio"
+	"context"
+	"errors"
 	"io/fs"
 	"maps"
 	"os"
@@ -29,8 +31,10 @@ var packageRe = regexp.MustCompile(`^\s*package\s+([A-Za-z_][A-Za-z0-9_]*(?:\.[A
 
 // Prefixes scans up to maxFiles sources under root whose extension is one of
 // exts for package declarations and reduces them with commonPrefixes. A
-// missing root or an unreadable file yields no prefixes, not an error.
-func Prefixes(root string, exts []string) []string {
+// missing root or an unreadable file yields no prefixes, not an error. If ctx
+// ends during the walk, Prefixes returns the prefixes collected so far with
+// the context error.
+func Prefixes(ctx context.Context, root string, exts []string) ([]string, error) {
 	wanted := map[string]bool{}
 	for _, ext := range exts {
 		wanted[strings.ToLower(ext)] = true
@@ -38,6 +42,9 @@ func Prefixes(root string, exts []string) []string {
 	pkgs := map[string]bool{}
 	read := 0
 	walk := func(path string, entry fs.DirEntry, err error) error {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return ctxErr
+		}
 		if err != nil {
 			return nil //nolint:nilerr // an unreadable entry is skipped, not fatal
 		}
@@ -59,14 +66,18 @@ func Prefixes(root string, exts []string) []string {
 		}
 		return nil
 	}
-	if err := filepath.WalkDir(root, walk); err != nil {
-		return nil
-	}
+	err := filepath.WalkDir(root, walk)
 	prefixes := commonPrefixes(slices.Sorted(maps.Keys(pkgs)))
 	if len(prefixes) > maxPrefixes {
 		prefixes = prefixes[:maxPrefixes]
 	}
-	return prefixes
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return prefixes, err
+	}
+	if err != nil {
+		return nil, nil
+	}
+	return prefixes, nil
 }
 
 // declaredPackage returns the package declared in the first 100 lines of the

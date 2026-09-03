@@ -240,6 +240,29 @@ func TestCheckConfigFlagSetsTheRoot(t *testing.T) {
 	assert.NotContains(t, stdout, "OutsideService", "a file above the configuration is outside the run")
 }
 
+func TestCheckConfigRelativeOutputFileUsesTheConfigurationRoot(t *testing.T) {
+	dir := t.TempDir()
+	writeTSFixture(t, dir)
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "app", "reports"), 0o755))
+	require.NoError(t, os.Rename(
+		filepath.Join(dir, "cdd.config.yaml"),
+		filepath.Join(dir, "app", "cdd.config.yaml"),
+	))
+	writeFixtureFile(t, dir, "app/src/inside.ts", cleanSource)
+	configPath := filepath.Join(dir, "app", "cdd.config.yaml")
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	data = []byte(strings.Replace(string(data), "  outputFile: null", `  outputFile: "reports/cdd.json"`, 1))
+	require.NoError(t, os.WriteFile(configPath, data, 0o644))
+
+	stdout, stderr, code := runCdd(t, dir, "check", "--config", filepath.Join("app", "cdd.config.yaml"))
+
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "Report written to "+filepath.Join("app", "reports", "cdd.json"))
+	assert.FileExists(t, filepath.Join(dir, "app", "reports", "cdd.json"))
+	assert.NoFileExists(t, filepath.Join(dir, "reports", "cdd.json"))
+}
+
 func TestCheckJSONReportToFile(t *testing.T) {
 	dir := t.TempDir()
 	writeTSFixture(t, dir)
@@ -324,6 +347,24 @@ func TestCheckPathNarrowsTheRunToOneFile(t *testing.T) {
 	assert.Contains(t, stdout, "Greeter")
 	assert.NotContains(t, stdout, "OrderService", "the other file is not part of the run")
 	assert.Contains(t, stdout, `"occurrences"`)
+}
+
+func TestCheckMixedConfiguredLanguagesAllowsSupportedPath(t *testing.T) {
+	dir := t.TempDir()
+	writeFixtureFile(t, dir, "tsconfig.json", `{"compilerOptions":{"paths":{"@app/*":["src/*"]}}}`+"\n")
+	_, initStderr, code := runCdd(t, dir, "init", "--yes", "--force",
+		"--languages", "go,typescript",
+		"--metrics", checkMetrics,
+		"--packages", "@app/",
+	)
+	require.Equal(t, 0, code, "stderr: %s", initStderr)
+	writeFixtureFile(t, dir, "src/app.ts", cleanSource)
+
+	stdout, stderr, code := runCdd(t, dir, "check", filepath.Join("src", "app.ts"), "--all")
+
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+	assert.Contains(t, stdout, "Greeter")
+	assert.NotContains(t, stderr, "no analyzer for go yet")
 }
 
 func TestCheckPathsAcceptACommaSeparatedList(t *testing.T) {
@@ -413,7 +454,7 @@ func TestCheckTimeoutReportsPartially(t *testing.T) {
 	assert.Contains(t, stderr, "timeout")
 }
 
-func TestCheckLanguageWithoutAnalyzer(t *testing.T) {
+func TestCheckSelectedUnavailableLanguage(t *testing.T) {
 	dir := t.TempDir()
 	writeGoFixture(t, dir)
 	_, stderr, code := runCdd(t, dir, "init", "--yes", "--force", "--languages", "go")
@@ -450,11 +491,6 @@ func TestCheckUnwritableReport(t *testing.T) {
 	_, stderr, code := runCdd(t, dir, "check")
 	assert.Equal(t, 1, code)
 	assert.Contains(t, stderr, "output directory")
-}
-
-func TestCommandContextFallsBackToBackground(t *testing.T) {
-	c, _, _ := silentCmd()
-	assert.NotNil(t, commandContext(c), "a command cobra never ran carries no context")
 }
 
 func TestEmitReportRejectsAnUnknownFormat(t *testing.T) {
