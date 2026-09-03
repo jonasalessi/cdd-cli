@@ -39,7 +39,7 @@ type analyzer struct {
 func NewAnalyzer(opts analyze.Options) analyze.Analyzer {
 	return &analyzer{
 		prefixes: opts.InternalPrefixes,
-		grammars: newGrammars(),
+		grammars: sharedGrammars(),
 		parser:   ts.NewParser(),
 	}
 }

@@ -30,8 +30,10 @@ const (
 // fakeAnalyzer returns the same result for every file and records what it
 // saw, so a test can prove which files reached which analyzer.
 type fakeAnalyzer struct {
-	result FileResult
-	err    error
+	result       FileResult
+	err          error
+	blockPath    string
+	blockStarted chan<- struct{}
 	// block makes Analyze wait for the context instead of returning, which
 	// is how a test drives the timeout.
 	block  bool
@@ -47,7 +49,10 @@ func (a *fakeAnalyzer) Analyze(ctx context.Context, path string, _ []byte) (File
 	a.mu.Lock()
 	a.paths = append(a.paths, path)
 	a.mu.Unlock()
-	if a.block {
+	if a.block && (a.blockPath == "" || a.blockPath == path) {
+		if a.blockStarted != nil {
+			a.blockStarted <- struct{}{}
+		}
 		<-ctx.Done()
 		return FileResult{}, ctx.Err()
 	}
@@ -78,6 +83,10 @@ type fakeLanguage struct {
 	result FileResult
 	err    error
 	block  bool
+	// blockPath limits blocking to one path when set; otherwise every
+	// analyzed path blocks.
+	blockPath    string
+	blockStarted chan<- struct{}
 
 	closes atomic.Int64
 	mu     sync.Mutex
@@ -95,7 +104,15 @@ func (f *fakeLanguage) language() Language {
 // newAnalyzer builds one analyzer and keeps it, together with the Options
 // the pipeline passed in.
 func (f *fakeLanguage) newAnalyzer(opts Options) Analyzer {
-	a := &fakeAnalyzer{result: f.result, err: f.err, block: f.block, closes: &f.closes, opts: opts}
+	a := &fakeAnalyzer{
+		result:       f.result,
+		err:          f.err,
+		block:        f.block,
+		blockPath:    f.blockPath,
+		blockStarted: f.blockStarted,
+		closes:       &f.closes,
+		opts:         opts,
+	}
 	f.mu.Lock()
 	f.built = append(f.built, a)
 	f.mu.Unlock()

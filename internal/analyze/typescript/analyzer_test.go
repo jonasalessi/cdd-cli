@@ -52,18 +52,42 @@ func TestSyntaxError(t *testing.T) {
 	require.Equal(t, []string{syntaxError + " at 2:3"}, res.Warnings)
 }
 
-// TestExtensions checks the grammar table, including the extensions that
-// only exist for module resolution.
+// TestExtensions checks that the grammar table accepts every extension the
+// language spec advertises, including extensions used for module resolution.
 func TestExtensions(t *testing.T) {
 	gs := newGrammars()
-	for _, ext := range []string{extTS, extMTS, extCTS, ".TS"} {
+	for _, ext := range Spec().Extensions {
 		g, err := gs.forPath("dir/file" + ext)
 		require.NoError(t, err)
+		if ext == extTSX {
+			require.Same(t, gs.tsx, g)
+			continue
+		}
 		require.Same(t, gs.plain, g)
 	}
-	g, err := gs.forPath("dir/file" + extTSX)
+	g, err := gs.forPath("dir/file.TS")
 	require.NoError(t, err)
-	require.Same(t, gs.tsx, g)
+	require.Same(t, gs.plain, g)
+}
+
+func TestAnalyzersShareOnlyImmutableGrammarMetadata(t *testing.T) {
+	first := NewAnalyzer(analyze.Options{}).(*analyzer)
+	second := NewAnalyzer(analyze.Options{}).(*analyzer)
+	t.Cleanup(func() {
+		require.NoError(t, first.Close())
+		require.NoError(t, second.Close())
+	})
+
+	require.Same(t, first.grammars, second.grammars)
+	require.NotSame(t, first.parser, second.parser)
+
+	for _, a := range []*analyzer{first, second} {
+		res, err := a.Analyze(context.Background(), "unit.ts", []byte("class Unit {}\n"))
+		require.NoError(t, err)
+		require.Len(t, res.Units, 1)
+		require.NotNil(t, a.cursor)
+	}
+	require.NotSame(t, first.cursor, second.cursor)
 }
 
 // TestUnsupportedExtension refuses to guess a grammar.

@@ -7,10 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// newMatcher builds a matcher a test can use inline.
-func newMatcher(t *testing.T, include, exclude []string) *Matcher {
+// mustMatcher builds a matcher a test can use inline.
+func mustMatcher(t *testing.T, include, exclude []string) *matcher {
 	t.Helper()
-	m, err := NewMatcher(include, exclude)
+	m, err := newMatcher(include, exclude)
 	require.NoError(t, err)
 	return m
 }
@@ -52,50 +52,62 @@ func TestMatcherGlobs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.glob+" vs "+tt.path, func(t *testing.T) {
-			m := newMatcher(t, []string{tt.glob}, nil)
+			m := mustMatcher(t, []string{tt.glob}, nil)
 			assert.Equal(t, tt.match, m.Match(tt.path))
 		})
 	}
 }
 
+func TestMatcherLeadingDotGlobMatchesRootRelativePath(t *testing.T) {
+	m := mustMatcher(t, []string{"./src/**/*.ts"}, nil)
+
+	assert.True(t, m.Match("src/a.ts"))
+}
+
+func TestMatcherLeadingDotExcludeGlobMatchesRootRelativePath(t *testing.T) {
+	m := mustMatcher(t, nil, []string{"glob:./src/**/*.ts"})
+
+	assert.False(t, m.Match("src/a.ts"))
+}
+
 func TestMatcherRegexEntriesAreNotGlobs(t *testing.T) {
-	m := newMatcher(t, []string{`regex:.*\.test\.ts$`}, nil)
+	m := mustMatcher(t, []string{`regex:.*\.test\.ts$`}, nil)
 	assert.True(t, m.Match("src/a/b.test.ts"))
 	assert.False(t, m.Match("src/a/b.ts"))
 
 	// The same text read as a glob matches nothing, which is what tells the
 	// two syntaxes apart.
-	glob := newMatcher(t, []string{`.*\.test\.ts$`}, nil)
+	glob := mustMatcher(t, []string{`.*\.test\.ts$`}, nil)
 	assert.False(t, glob.Match("src/a/b.test.ts"))
 }
 
 func TestMatcherRegexIsNotAnchored(t *testing.T) {
-	m := newMatcher(t, []string{"regex:adapters"}, nil)
+	m := mustMatcher(t, []string{"regex:adapters"}, nil)
 	assert.True(t, m.Match("src/adapters/http.ts"))
 }
 
 func TestMatcherEmptyIncludeIncludesEverything(t *testing.T) {
-	m := newMatcher(t, nil, nil)
+	m := mustMatcher(t, nil, nil)
 	assert.True(t, m.Match("anything/at/all.ts"))
 	assert.True(t, m.Match("main.go"))
 }
 
 func TestMatcherExcludeWinsOverInclude(t *testing.T) {
-	m := newMatcher(t, []string{"src/**"}, []string{"**/*.test.ts"})
+	m := mustMatcher(t, []string{"src/**"}, []string{"**/*.test.ts"})
 	assert.True(t, m.Match("src/order.ts"))
 	assert.False(t, m.Match("src/order.test.ts"))
 	assert.False(t, m.Match("lib/order.ts"), "outside every include pattern")
 }
 
 func TestMatcherExcludeAloneKeepsTheRest(t *testing.T) {
-	m := newMatcher(t, nil, []string{"vendor/**", "regex:_generated\\.go$"})
+	m := mustMatcher(t, nil, []string{"vendor/**", "regex:_generated\\.go$"})
 	assert.False(t, m.Match("vendor/x/y.go"))
 	assert.False(t, m.Match("src/api_generated.go"))
 	assert.True(t, m.Match("src/api.go"))
 }
 
 func TestMatcherIncludeMatchesAnyEntry(t *testing.T) {
-	m := newMatcher(t, []string{"src/**", "lib/**"}, nil)
+	m := mustMatcher(t, []string{"src/**", "lib/**"}, nil)
 	assert.True(t, m.Match("src/a.ts"))
 	assert.True(t, m.Match("lib/a.ts"))
 	assert.False(t, m.Match("test/a.ts"))
@@ -130,7 +142,7 @@ func TestNewMatcherRejectsInvalidPatterns(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, err := NewMatcher(tt.include, tt.exclude)
+			_, err := newMatcher(tt.include, tt.exclude)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), tt.message)
 		})
@@ -138,7 +150,7 @@ func TestNewMatcherRejectsInvalidPatterns(t *testing.T) {
 }
 
 func TestNewMatcherReportsAGlobThatCompilesToABadRegex(t *testing.T) {
-	_, err := NewMatcher(nil, []string{"[^]"})
+	_, err := newMatcher(nil, []string{"[^]"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid glob")
 }

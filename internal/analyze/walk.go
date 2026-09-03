@@ -31,6 +31,9 @@ func (p *plan) collect(ctx context.Context, root string, paths []string) ([]cand
 	var found []candidate
 	seen := make(map[string]bool)
 	for _, rel := range paths {
+		if ctx.Err() != nil {
+			break
+		}
 		more, err := p.collectPath(ctx, root, rel)
 		if err != nil {
 			return nil, err
@@ -50,9 +53,16 @@ func (p *plan) collect(ctx context.Context, root string, paths []string) ([]cand
 // run would silently pass over in a walk is an error here.
 func (p *plan) collectPath(ctx context.Context, root, rel string) ([]candidate, error) {
 	full := filepath.Join(root, filepath.FromSlash(rel))
+	link, err := os.Lstat(full)
+	if err != nil {
+		return nil, err
+	}
 	info, err := os.Stat(full)
 	if err != nil {
 		return nil, err
+	}
+	if link.Mode()&os.ModeSymlink != 0 && info.IsDir() {
+		return nil, fmt.Errorf("%s: symlinked directory is not supported", rel)
 	}
 	if info.IsDir() {
 		return p.walk(ctx, root, full)
@@ -79,10 +89,10 @@ func (p *plan) file(rel string) (candidate, error) {
 
 // walk descends from start, which is root or a directory under it, and
 // returns every file the run analyzes, with paths relative to root.
-// Directories detect.SkipDir names, version control and build output among
-// them, are never entered, unless start itself is one: the caller asked for
-// it. A canceled context ends the walk with what it found so far, because
-// Run turns that into a partial result rather than an error.
+// Directories detect.SkipDir names, including version control and build
+// output, are never entered unless start itself is one: the caller asked for
+// it. A canceled context ends the walk with what it found so far, because Run
+// turns that into a partial result rather than an error.
 func (p *plan) walk(ctx context.Context, root, start string) ([]candidate, error) {
 	var found []candidate
 	err := filepath.WalkDir(start, func(path string, entry fs.DirEntry, err error) error {

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<report root="/projects/shop" filter="violations" explain="false" partial="true" elapsed_ms="1234">
+<report root="/projects/shop" blocked="false" filter="violations" explain="false" partial="true" elapsed_ms="1234">
   <files></files>
   <warnings></warnings>
   <summary units="0" violations="0"></summary>

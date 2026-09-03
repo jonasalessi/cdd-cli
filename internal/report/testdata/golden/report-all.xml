@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<report root="/projects/shop" filter="all" explain="false" partial="false" elapsed_ms="1234">
+<report root="/projects/shop" blocked="true" filter="all" explain="false" partial="false" elapsed_ms="1234">
   <files>
     <file path="src/checkout.ts" language="typescript">
       <units>
@@ -28,8 +28,6 @@
       <warnings></warnings>
     </file>
   </files>
-  <warnings>
-    <warning>the legacy mode is reported, not enforced yet</warning>
-  </warnings>
+  <warnings></warnings>
   <summary units="3" violations="1"></summary>
 </report>

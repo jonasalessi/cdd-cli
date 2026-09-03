@@ -1,9 +1,11 @@
 package jvm
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,6 +13,28 @@ import (
 )
 
 var javaExt = []string{".java"}
+
+// cancelAfterContext cancels its valid underlying context on the requested
+// Err check, making a walk cancellation deterministic without timing.
+type cancelAfterContext struct {
+	context.Context
+	cancel    context.CancelFunc
+	remaining atomic.Int32
+}
+
+func newCancelAfterContext(parent context.Context, checks int32) *cancelAfterContext {
+	ctx, cancel := context.WithCancel(parent)
+	result := &cancelAfterContext{Context: ctx, cancel: cancel}
+	result.remaining.Store(checks)
+	return result
+}
+
+func (c *cancelAfterContext) Err() error {
+	if c.remaining.Add(-1) == 0 {
+		c.cancel()
+	}
+	return c.Context.Err()
+}
 
 // writeJVM lays out a java source declaring pkg at the given relative path.
 func writeJVM(t *testing.T, root, rel, pkg string) {
@@ -25,26 +49,36 @@ func TestPrefixesReducesDeclarations(t *testing.T) {
 	writeJVM(t, dir, "src/main/java/com/acme/billing/api/Invoice.java", "com.acme.billing.api")
 	writeJVM(t, dir, "src/main/java/com/acme/billing/db/InvoiceRow.java", "com.acme.billing.db")
 	writeJVM(t, dir, "src/main/java/com/acme/shared/Money.java", "com.acme.shared")
-	assert.Equal(t, []string{"com.acme.billing", "com.acme.shared"}, Prefixes(dir, javaExt))
+	got, err := Prefixes(t.Context(), dir, javaExt)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"com.acme.billing", "com.acme.shared"}, got)
 }
 
 func TestPrefixesReadsOnlyTheGivenExtensions(t *testing.T) {
 	dir := t.TempDir()
 	writeJVM(t, dir, "src/main/java/com/acme/app/C.java", "com.acme.app")
 	writeJVM(t, dir, "src/main/kotlin/com/other/K.kt", "com.other")
-	assert.Equal(t, []string{"com.acme.app"}, Prefixes(dir, javaExt))
-	assert.Equal(t, []string{"com.other"}, Prefixes(dir, []string{".KT"}), "extensions match case-insensitively")
+	java, err := Prefixes(t.Context(), dir, javaExt)
+	require.NoError(t, err)
+	kotlin, err := Prefixes(t.Context(), dir, []string{".KT"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"com.acme.app"}, java)
+	assert.Equal(t, []string{"com.other"}, kotlin, "extensions match case-insensitively")
 }
 
 func TestPrefixesMissingRoot(t *testing.T) {
-	assert.Nil(t, Prefixes(filepath.Join(t.TempDir(), "gone"), javaExt))
+	got, err := Prefixes(t.Context(), filepath.Join(t.TempDir(), "gone"), javaExt)
+	require.NoError(t, err)
+	assert.Nil(t, got)
 }
 
 func TestPrefixesSkipsBuildOutput(t *testing.T) {
 	dir := t.TempDir()
 	writeJVM(t, dir, "src/main/java/com/acme/app/C.java", "com.acme.app")
 	writeJVM(t, dir, "build/generated/com/vendor/gen/G.java", "com.vendor.gen")
-	assert.Equal(t, []string{"com.acme.app"}, Prefixes(dir, javaExt), "a build directory at the root is not scanned")
+	got, err := Prefixes(t.Context(), dir, javaExt)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"com.acme.app"}, got, "a build directory at the root is not scanned")
 }
 
 func TestPrefixesStopsAtTheFileCap(t *testing.T) {
@@ -53,7 +87,8 @@ func TestPrefixesStopsAtTheFileCap(t *testing.T) {
 	for i := range maxFiles + 1 {
 		writeJVM(t, dir, fmt.Sprintf("src/p%03d/C.java", i), fmt.Sprintf("com.acme.p%03d", i))
 	}
-	got := Prefixes(dir, javaExt)
+	got, err := Prefixes(t.Context(), dir, javaExt)
+	require.NoError(t, err)
 	assert.NotEmpty(t, got)
 	assert.LessOrEqual(t, len(got), maxPrefixes, "the prefix list is capped too")
 }
@@ -63,7 +98,34 @@ func TestPrefixesCapsThePrefixList(t *testing.T) {
 	for i := range maxPrefixes + 3 {
 		writeJVM(t, dir, fmt.Sprintf("src/r%d/C.java", i), fmt.Sprintf("root%d.pkg", i))
 	}
-	assert.Len(t, Prefixes(dir, javaExt), maxPrefixes)
+	got, err := Prefixes(t.Context(), dir, javaExt)
+	require.NoError(t, err)
+	assert.Len(t, got, maxPrefixes)
+}
+
+func TestPrefixesCanceledContext(t *testing.T) {
+	dir := t.TempDir()
+	writeJVM(t, dir, "src/main/java/com/acme/app/C.java", "com.acme.app")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	got, err := Prefixes(ctx, dir, javaExt)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Empty(t, got)
+}
+
+func TestPrefixesCanceledContextReturnsPartialPrefixes(t *testing.T) {
+	dir := t.TempDir()
+	writeJVM(t, dir, "a.java", "com.acme.first")
+	writeJVM(t, dir, "b.java", "com.acme.second")
+	ctx := newCancelAfterContext(t.Context(), 3)
+	t.Cleanup(ctx.cancel)
+
+	got, err := Prefixes(ctx, dir, javaExt)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, []string{"com.acme.first"}, got)
 }
 
 func TestDeclaredPackageOfAnUnreadableFile(t *testing.T) {

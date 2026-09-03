@@ -6,7 +6,7 @@
 #
 # Key naming: `icp-limits` and `outputFile` are kept verbatim from the adopted
 # format; every other key is snake_case.
-version: {{.Version}}
+version: 1
 
 # -----------------------------------------------------------------------------
 # PROJECT TYPE
@@ -15,7 +15,7 @@ version: {{.Version}}
 #   greenfield - strict from day one; limit band 7-14 (default 10)
 #   legacy     - measure what exists, enforce on new code; band 20-40 (default 25)
 # Drives the default limit and the band used for validation warnings.
-project_type: {{.ProjectType}}
+project_type: greenfield
 
 # -----------------------------------------------------------------------------
 # METRICS: ICP WEIGHTS
@@ -41,19 +41,16 @@ project_type: {{.ProjectType}}
 # last one in document order wins and its weights are merged over the earlier
 # ones, so keep ".*" first and put specific layers below it.
 metrics:
-{{- range $i, $lang := .Metrics}}
-  {{$lang.Language}}:
-{{- range $lang.Patterns}}
-    {{.Pattern}}:
-{{- range .Lines}}
-      {{.}}
-{{- end}}
-{{- end}}
-{{- if eq $i 0}}
+  typescript:
+    ".*":
+      code_branch: 1.0        # if/else, switch, ternary, loops and ?.
+      condition: 1.0          # &&, || and ?? clauses
+      exception_handling: 1.0 # try / catch / finally blocks
+      internal_coupling: 1.0  # references to project modules
+      external_coupling: 0.5  # framework / node_modules types
+      inheritance: 1.0        # extends / implements, per level
     # ".*/dto/.*":
     #   internal_coupling: 0.5  # merged over the ".*" weights above
-{{- end}}
-{{- end}}
 
 # -----------------------------------------------------------------------------
 # ICP-LIMITS: UNIT THRESHOLDS
@@ -69,15 +66,9 @@ metrics:
 # Limits are integers >= 1; a value outside the band of `project_type` is a
 # warning, not an error. Same last-match-wins precedence as `metrics`.
 icp-limits:
-{{- range $i, $lang := .Limits}}
-  {{$lang.Language}}:
-{{- range $lang.Patterns}}
-    {{.Pattern}}: {{.Limit}}
-{{- end}}
-{{- range $lang.Examples}}
-    {{.}}
-{{- end}}
-{{- end}}
+  typescript:
+    ".*": 10
+    # ".*/adapters/.*": 8
 
 # -----------------------------------------------------------------------------
 # ENFORCEMENT
@@ -90,8 +81,8 @@ icp-limits:
 #                        (needs the baseline store; not supported yet)
 #   measure_only       - report only; forces block_on_ci: false
 enforcement:
-  block_on_ci: {{.BlockOnCI}}
-  legacy_mode: {{.LegacyMode}}
+  block_on_ci: true
+  legacy_mode: strict_all
   # target_limit: 8                   # optional goal for progressive tightening
 
 # -----------------------------------------------------------------------------
@@ -100,16 +91,16 @@ enforcement:
 # timeout: Max wall-clock time for a full `cdd check` / `cdd report` run.
 # Go duration syntax (30s, 5m, 1h). 0s = no limit. When exceeded the run stops,
 # reports the files analysed so far and exits with an error.
-timeout: {{.Timeout}}
+timeout: 5m
 
 # -----------------------------------------------------------------------------
 # REPORTER SETTINGS
 # -----------------------------------------------------------------------------
 reporter:
-  # format: The output style. Supported: {{.Formats}}
-  format: {{.Format}}
+  # format: The output style. Supported: console, json, xml, markdown
+  format: console
   # outputFile: Optional path to save the report. null = stdout.
-  outputFile: {{.OutputFile}}
+  outputFile: null
 
 # -----------------------------------------------------------------------------
 # INTERNAL COUPLING DETECTION
@@ -123,8 +114,8 @@ reporter:
 #   packages:    explicit prefixes, e.g. "com.acme.app" (java/kotlin),
 #                "github.com/acme/billing" (go), "@app/" (typescript)
 internal_coupling:
-  auto_detect: {{.AutoDetect}}
-  packages:{{.Packages}}
+  auto_detect: true
+  packages: []
 
 # -----------------------------------------------------------------------------
 # FILE FILTERING
@@ -132,7 +123,7 @@ internal_coupling:
 # Patterns follow glob: or regex: syntax. If no prefix is provided, glob: is
 # assumed. `exclude` wins over `include`.
 # include: If not empty, only files matching at least one pattern are analyzed.
-include:{{.Include}}
+include: []
 # exclude: Files matching these patterns are skipped (tests, generated code).
 # Defaults written by `cdd init`:
 #   go         -> **/*_test.go · vendor/**
@@ -140,4 +131,17 @@ include:{{.Include}}
 #   typescript -> **/*.test.ts · **/*.spec.ts · **/*.test.tsx · **/*.spec.tsx
 #                 **/*.test.mts · **/*.spec.mts · **/*.test.cts · **/*.spec.cts
 #                 **/*.d.ts · **/*.d.mts · **/*.d.cts · **/node_modules/** · **/dist/**
-exclude:{{.Exclude}}
+exclude:
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.tsx"
+  - "**/*.test.mts"
+  - "**/*.spec.mts"
+  - "**/*.test.cts"
+  - "**/*.spec.cts"
+  - "**/*.d.ts"
+  - "**/*.d.mts"
+  - "**/*.d.cts"
+  - "**/node_modules/**"
+  - "**/dist/**"

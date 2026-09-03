@@ -29,12 +29,13 @@ type module struct {
 
 // modules returns the modules imported by the file, in source order (FR-6).
 //
-// Type-only imports count exactly like value imports: `import type { X }`
-// and `import { type X }` are dependencies on the same module. Re-exports
-// (`export … from "x"`) and dynamic `import()` are not import statements
-// and contribute nothing. `import x = require("y")` is an import statement
-// and is treated exactly like a default import: one binding, classified
-// internal or external by the same rules.
+// Type-only imports with bindings count exactly like value imports: `import
+// type { X }` and `import { type X }` are dependencies on the same module. An
+// empty type-only clause introduces no dependency. Re-exports (`export … from
+// "x"`) and dynamic `import()` are not import statements and contribute
+// nothing. `import x = require("y")` is an import statement and is treated
+// exactly like a default import: one binding, classified internal or external
+// by the same rules.
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module {
 	var out []module
 	index := map[string]int{}
@@ -94,18 +95,21 @@ func requireSource(g *grammar, n *ts.Node) *ts.Node {
 // importBindings returns the local names an import statement introduces and
 // whether it is a side-effect import, which introduces none.
 func importBindings(g *grammar, n *ts.Node, src []byte) (names []string, sideEffect bool) {
+	hasClause := false
 	for _, child := range namedChildren(n) {
 		clause := child
 		switch g.kindOf(&clause) {
 		case kindImportClause:
+			hasClause = true
 			names = append(names, clauseBindings(g, &clause, src)...)
 		case kindImportRequireClause:
+			hasClause = true
 			if name := requireBinding(g, &clause, src); name != "" {
 				names = append(names, name)
 			}
 		}
 	}
-	return names, len(names) == 0
+	return names, !hasClause
 }
 
 // requireBinding returns the local name `import x = require("y")` binds,
@@ -163,15 +167,16 @@ func specifierBindings(g *grammar, list *ts.Node, src []byte) []string {
 
 // isInternal classifies a module specifier. Relative and root-anchored
 // specifiers are always internal; a bare specifier is internal when it
-// starts with one of the configured internal prefixes ("@app/" matching
-// "@app/users"); everything else, "node:fs" and "lodash/fp" included, is
-// external.
+// equals one of the configured internal prefixes or is its slash-delimited
+// subpath ("@app/" matching "@app/users"); everything else, "node:fs" and
+// "lodash/fp" included, is external.
 func isInternal(spec string, prefixes []string) bool {
 	if isRelative(spec) {
 		return true
 	}
-	for _, p := range prefixes {
-		if p != "" && strings.HasPrefix(spec, p) {
+	for _, prefix := range prefixes {
+		base := strings.TrimSuffix(prefix, "/")
+		if base != "" && (spec == base || strings.HasPrefix(spec, base+"/")) {
 			return true
 		}
 	}

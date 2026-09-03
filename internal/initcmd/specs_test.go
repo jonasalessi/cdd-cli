@@ -1,6 +1,10 @@
 package initcmd
 
-import "github.com/jonasalessi/cdd-cli/internal/config"
+import (
+	"context"
+
+	"github.com/jonasalessi/cdd-cli/internal/config"
+)
 
 // Synthetic languages. alpha cannot count exceptions or inheritance; beta
 // and gamma count everything and share their exclude globs.
@@ -10,7 +14,7 @@ const (
 	langGamma config.Language = "gamma"
 )
 
-func noPackages(string) ([]string, error) { return nil, nil }
+func noPackages(context.Context, string) ([]string, error) { return nil, nil }
 
 func alphaSpec() config.LanguageSpec {
 	return config.LanguageSpec{

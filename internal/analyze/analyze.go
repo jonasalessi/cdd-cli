@@ -104,6 +104,9 @@ type Request struct {
 type RunResult struct {
 	// Root is the directory every FileReport.Path is relative to.
 	Root string
+	// Blocked is true when the finalized result has violations and the
+	// configured enforcement blocks on them.
+	Blocked bool
 	// Files are the analyzed files in path order.
 	Files []FileReport
 	// Warnings concern the run rather than one file, e.g. an enforcement

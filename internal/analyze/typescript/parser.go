@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"sync"
 
 	ts "github.com/tree-sitter/go-tree-sitter"
 	tsbind "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
@@ -15,10 +16,12 @@ import (
 // the grammar and there is no fallback.
 const (
 	extTS  = ".ts"
+	extTSX = ".tsx"
 	extMTS = ".mts"
 	extCTS = ".cts"
-	extTSX = ".tsx"
 )
+
+var typeScriptExtensions = [...]string{extTS, extTSX, extMTS, extCTS}
 
 // kind is this package's dense id for the tree-sitter node kinds the
 // analyzer reacts to. Grammar symbol ids are resolved once, when the
@@ -216,14 +219,16 @@ type grammars struct {
 	tsx   *grammar
 }
 
-// newGrammars builds both parse tables. Building them is the only
-// per-analyzer setup cost; the tables themselves live in the C library.
+// newGrammars builds both parse tables for process-wide sharing. The tables
+// are immutable after construction and live in the C library.
 func newGrammars() *grammars {
 	return &grammars{
 		plain: newGrammar(ts.NewLanguage(tsbind.LanguageTypescript())),
 		tsx:   newGrammar(ts.NewLanguage(tsbind.LanguageTSX())),
 	}
 }
+
+var sharedGrammars = sync.OnceValue(newGrammars)
 
 // forPath returns the grammar that parses p, chosen by extension: .ts, .mts
 // and .cts use the plain grammar, .tsx uses the TSX one. Any other

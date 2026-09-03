@@ -14,6 +14,8 @@ type Report struct {
 	XMLName xml.Name `json:"-" xml:"report"`
 	// Root is the directory every File.Path is relative to.
 	Root string `json:"root" xml:"root,attr"`
+	// Blocked is true when the finalized result must fail the command.
+	Blocked bool `json:"blocked" xml:"blocked,attr"`
 	// Filter says which units the document lists: "violations" for the
 	// units above their limit alone, "all" for every measured unit. The
 	// summary always counts the whole run, so the two disagree by design.
@@ -142,6 +144,7 @@ func newReport(res analyze.RunResult, opts Options) Report {
 	}
 	return Report{
 		Root:      res.Root,
+		Blocked:   res.Blocked,
 		Filter:    filterName(opts),
 		Explain:   opts.Explain,
 		Partial:   res.Partial,

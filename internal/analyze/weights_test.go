@@ -10,19 +10,19 @@ import (
 )
 
 func TestNewWeightsRejectsAnInvalidPattern(t *testing.T) {
-	_, err := NewWeights(config.PatternWeights{{Pattern: "("}})
+	_, err := newWeights(config.PatternWeights{{Pattern: "("}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `pattern "("`)
 }
 
 func TestNewLimitsRejectsAnInvalidPattern(t *testing.T) {
-	_, err := NewLimits(config.PatternLimits{{Pattern: "[", Limit: 10}})
+	_, err := newLimits(config.PatternLimits{{Pattern: "[", Limit: 10}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `pattern "["`)
 }
 
 func TestWeightsForMergesEveryMatchingPatternInOrder(t *testing.T) {
-	weights, err := NewWeights(config.PatternWeights{
+	weights, err := newWeights(config.PatternWeights{
 		{Pattern: config.PatternAll, Weights: map[config.MetricID]float64{
 			config.MetricCodeBranch:       1,
 			config.MetricCondition:        1,
@@ -62,7 +62,7 @@ func TestWeightsForMergesEveryMatchingPatternInOrder(t *testing.T) {
 }
 
 func TestWeightsForReturnsAFreshMap(t *testing.T) {
-	weights, err := NewWeights(config.PatternWeights{
+	weights, err := newWeights(config.PatternWeights{
 		{Pattern: config.PatternAll, Weights: map[config.MetricID]float64{config.MetricCodeBranch: 1}},
 	})
 	require.NoError(t, err)
@@ -73,7 +73,7 @@ func TestWeightsForReturnsAFreshMap(t *testing.T) {
 }
 
 func TestWeightsForWithoutAnyMatchDisablesEveryMetric(t *testing.T) {
-	weights, err := NewWeights(config.PatternWeights{
+	weights, err := newWeights(config.PatternWeights{
 		{Pattern: `^src/`, Weights: map[config.MetricID]float64{config.MetricCodeBranch: 1}},
 	})
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestWeightsForWithoutAnyMatchDisablesEveryMetric(t *testing.T) {
 }
 
 func TestLimitsForTakesTheLastMatch(t *testing.T) {
-	limits, err := NewLimits(config.PatternLimits{
+	limits, err := newLimits(config.PatternLimits{
 		{Pattern: config.PatternAll, Limit: 10},
 		{Pattern: ".*/adapters/.*", Limit: 8},
 		{Pattern: ".*/adapters/legacy/.*", Limit: 25},
@@ -94,7 +94,7 @@ func TestLimitsForTakesTheLastMatch(t *testing.T) {
 }
 
 func TestLimitsForWithoutAnyMatchIsZero(t *testing.T) {
-	limits, err := NewLimits(nil)
+	limits, err := newLimits(nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, limits.For("a.ts"))
 }
@@ -118,7 +118,7 @@ func TestScoreMultipliesOnlyTheEnabledMetrics(t *testing.T) {
 		config.MetricExternalCoupling: 0.5,
 	}
 
-	got := Score(unit, weights, 10)
+	got := score(unit, weights, 10)
 
 	assert.Equal(t, "Order", got.Name)
 	assert.Equal(t, kindClass, got.Kind)
@@ -154,7 +154,7 @@ func TestScoreExceedsOnlyAboveTheLimit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			unit := Unit{Counts: map[config.MetricID]int{config.MetricCodeBranch: tt.count}}
-			got := Score(unit, map[config.MetricID]float64{config.MetricCodeBranch: 1}, tt.limit)
+			got := score(unit, map[config.MetricID]float64{config.MetricCodeBranch: 1}, tt.limit)
 			assert.InDelta(t, tt.total, got.Total, 0)
 			assert.Equal(t, tt.exceeds, got.Exceeds)
 		})
@@ -163,12 +163,12 @@ func TestScoreExceedsOnlyAboveTheLimit(t *testing.T) {
 
 func TestScoreKeepsHalfPoints(t *testing.T) {
 	unit := Unit{Counts: map[config.MetricID]int{config.MetricExternalCoupling: 5}}
-	got := Score(unit, map[config.MetricID]float64{config.MetricExternalCoupling: 0.5}, 10)
+	got := score(unit, map[config.MetricID]float64{config.MetricExternalCoupling: 0.5}, 10)
 	assert.InDelta(t, 2.5, got.Total, 0)
 }
 
 func TestScoreWithoutCountsIsEmptyButNotNil(t *testing.T) {
-	got := Score(Unit{Name: "empty"}, map[config.MetricID]float64{config.MetricCodeBranch: 1}, 10)
+	got := score(Unit{Name: "empty"}, map[config.MetricID]float64{config.MetricCodeBranch: 1}, 10)
 	assert.NotNil(t, got.Counts)
 	assert.NotNil(t, got.Scores)
 	assert.Empty(t, got.Counts)
@@ -177,7 +177,7 @@ func TestScoreWithoutCountsIsEmptyButNotNil(t *testing.T) {
 
 func TestScoreIgnoresAnUnknownMetric(t *testing.T) {
 	unit := Unit{Counts: map[config.MetricID]int{"made_up": 7, config.MetricCodeBranch: 1}}
-	got := Score(unit, map[config.MetricID]float64{"made_up": 1, config.MetricCodeBranch: 1}, 10)
+	got := score(unit, map[config.MetricID]float64{"made_up": 1, config.MetricCodeBranch: 1}, 10)
 	assert.Equal(t, map[config.MetricID]int{config.MetricCodeBranch: 1}, got.Counts)
 	assert.InDelta(t, 1.0, got.Total, 0)
 }
@@ -195,7 +195,7 @@ func TestNewResolverReportsTheSectionOfTheInvalidPattern(t *testing.T) {
 	}
 	for section, cfg := range tests {
 		t.Run(section, func(t *testing.T) {
-			_, err := NewResolver(cfg, langAlpha)
+			_, err := newResolver(cfg, langAlpha)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), section)
 		})
@@ -213,7 +213,7 @@ func TestResolverResolveScoresEveryUnitOfTheFile(t *testing.T) {
 			{Pattern: ".*/dto/.*", Limit: 20},
 		}},
 	}
-	resolver, err := NewResolver(cfg, langAlpha)
+	resolver, err := newResolver(cfg, langAlpha)
 	require.NoError(t, err)
 
 	units := []Unit{
@@ -235,7 +235,7 @@ func TestResolverResolveScoresEveryUnitOfTheFile(t *testing.T) {
 }
 
 func TestResolverResolveWithoutUnitsIsNil(t *testing.T) {
-	resolver, err := NewResolver(&config.Config{}, langAlpha)
+	resolver, err := newResolver(&config.Config{}, langAlpha)
 	require.NoError(t, err)
 	assert.Nil(t, resolver.Resolve("a.alpha", nil))
 }
@@ -302,7 +302,7 @@ func TestScoreWeighsTheOccurrencesOfTheEnabledMetrics(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := Score(tt.unit, tt.weights, 10)
+			got := score(tt.unit, tt.weights, 10)
 			assert.Len(t, got.Occurrences, len(tt.want))
 			for i := range tt.want {
 				assert.Equal(t, tt.want[i], got.Occurrences[i], "occurrence %d", i)

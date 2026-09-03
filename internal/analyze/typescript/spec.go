@@ -1,9 +1,9 @@
-// Package typescript is the home of the TypeScript language: the data cdd
-// init and the configuration need, and the tsconfig.json based package
-// detection.
+// Package typescript analyzes TypeScript source code for Intrinsic Complexity
+// Points and supplies its language configuration and package detection.
 package typescript
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -21,9 +21,14 @@ func Spec() config.LanguageSpec {
 	return config.LanguageSpec{
 		ID:          "typescript",
 		DisplayName: "TypeScript",
-		Extensions:  []string{".ts", ".tsx", ".mts", ".cts"},
+		Extensions:  slices.Clone(typeScriptExtensions[:]),
 		DefaultExcludes: []string{
-			"**/*.test.ts", "**/*.spec.ts", "**/*.d.ts", "**/node_modules/**", "**/dist/**",
+			"**/*.test.ts", "**/*.spec.ts",
+			"**/*.test.tsx", "**/*.spec.tsx",
+			"**/*.test.mts", "**/*.spec.mts",
+			"**/*.test.cts", "**/*.spec.cts",
+			"**/*.d.ts", "**/*.d.mts", "**/*.d.cts",
+			"**/node_modules/**", "**/dist/**",
 		},
 		Descriptions: map[config.MetricID]string{
 			config.MetricCodeBranch:       "if/else, switch, ternary, loops and ?.",
@@ -43,7 +48,10 @@ func Spec() config.LanguageSpec {
 // "@app/". tsconfig files may carry comments and trailing commas; both are
 // removed before parsing, and a file that still does not parse yields no
 // prefixes.
-func detectPackages(root string) ([]string, error) {
+func detectPackages(ctx context.Context, root string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	data, err := os.ReadFile(filepath.Join(root, "tsconfig.json"))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

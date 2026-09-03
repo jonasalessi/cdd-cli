@@ -2,9 +2,11 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -17,8 +19,8 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/languages"
 )
 
-// update rewrites the dogfood cdd.config.yaml from the command output.
-var update = flag.Bool("update", false, "rewrite cdd.config.yaml")
+// update rewrites command-output golden files.
+var update = flag.Bool("update", false, "rewrite command-output golden files")
 
 // The e2e tests drive the real registry through --languages, so they name
 // real ids.
@@ -111,13 +113,34 @@ func TestInitYesDetectsGoProject(t *testing.T) {
 	stdout, stderr, code := runCdd(t, dir, "init", "--yes")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 	assert.Contains(t, stdout, "Created cdd.config.yaml")
-	assert.Empty(t, stderr)
+	assert.Contains(t, stderr, "warning: no analyzer for go yet")
+	assert.Equal(t, 1, strings.Count(stderr, "no analyzer for go yet"))
 
 	cfg := loadConfig(t, dir)
 	require.Len(t, cfg.Metrics, 1)
 	assert.Contains(t, cfg.Metrics, langGo)
 	assert.Equal(t, []string{"example.com/fixture"}, cfg.InternalCoupling.Packages)
 	assert.Equal(t, config.ProjectGreenfield, cfg.ProjectType)
+}
+
+func TestInitWarnsOnceForUnavailableAnalyzer(t *testing.T) {
+	tests := map[string][]string{
+		"automatically detected": nil,
+		"explicitly selected":    {"--languages", "go"},
+	}
+	for name, args := range tests {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			writeGoFixture(t, dir)
+			args = append([]string{"init", "--yes"}, args...)
+
+			_, stderr, code := runCdd(t, dir, args...)
+
+			require.Equal(t, 0, code, "stderr: %s", stderr)
+			assert.Equal(t, 1, strings.Count(stderr, "warning: no analyzer for go yet"))
+			assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
+		})
+	}
 }
 
 func TestInitFullFlagsMatchesGolden(t *testing.T) {
@@ -139,6 +162,27 @@ func TestInitFullFlagsMatchesGolden(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dir, "cdd.config.yaml"))
 	require.NoError(t, err)
 	assert.Equal(t, string(want), string(got))
+}
+
+func TestInitTypeScriptMatchesGolden(t *testing.T) {
+	// The real registry must drive this test. Synthetic language fixtures do
+	// not cover TypeScript's descriptions, package example, or file defaults.
+	path, err := filepath.Abs(filepath.Join("testdata", "golden", "greenfield-typescript.yaml"))
+	require.NoError(t, err)
+	dir := t.TempDir()
+	_, stderr, code := runCdd(t, dir, "init", "--yes", "--languages", "typescript")
+	require.Equal(t, 0, code, "stderr: %s", stderr)
+
+	got, err := os.ReadFile(filepath.Join(dir, "cdd.config.yaml"))
+	require.NoError(t, err)
+
+	if *update {
+		require.NoError(t, os.WriteFile(path, got, 0o644))
+	}
+	want, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, string(want), string(got),
+		"real TypeScript defaults drifted; run go test ./cmd -run TestInitTypeScriptMatchesGolden -update")
 }
 
 func TestInitMetricsFlagFilteredPerLanguage(t *testing.T) {
@@ -295,7 +339,8 @@ func TestInitScanTimeoutTruncation(t *testing.T) {
 		writeGoFixture(t, dir)
 		_, stderr, code := runCdd(t, dir, "init", "--yes", "--scan-timeout", "0")
 		require.Equal(t, 0, code, "stderr: %s", stderr)
-		assert.Empty(t, stderr)
+		assert.NotContains(t, stderr, "scan stopped")
+		assert.Equal(t, 1, strings.Count(stderr, "warning: no analyzer for go yet"))
 		assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
 	})
 }
@@ -338,7 +383,7 @@ func TestGatherDefaults(t *testing.T) {
 		dir := t.TempDir()
 		writeGoFixture(t, dir)
 		t.Chdir(dir)
-		a, det, err := gatherDefaults(&initOptions{scanTimeout: 4 * time.Second}, specs())
+		a, det, err := gatherDefaults(t.Context(), &initOptions{scanTimeout: 4 * time.Second}, specs())
 		require.NoError(t, err)
 		assert.False(t, det.Truncated)
 		assert.Equal(t, []config.Language{langGo}, a.Languages)
@@ -349,7 +394,7 @@ func TestGatherDefaults(t *testing.T) {
 		dir := t.TempDir()
 		writeGoFixture(t, dir)
 		t.Chdir(dir)
-		a, _, err := gatherDefaults(&initOptions{
+		a, _, err := gatherDefaults(t.Context(), &initOptions{
 			languages: []string{" java ", ""},
 			metrics:   []string{"code_branch", " condition "},
 			packages:  []string{"com.acme"},
@@ -364,9 +409,30 @@ func TestGatherDefaults(t *testing.T) {
 	})
 	t.Run("a bad weight flag stops before detection", func(t *testing.T) {
 		t.Chdir(t.TempDir())
-		_, _, err := gatherDefaults(&initOptions{weights: []string{"oops"}}, specs())
+		_, _, err := gatherDefaults(t.Context(), &initOptions{weights: []string{"oops"}}, specs())
 		assert.ErrorContains(t, err, "expected id=value")
 	})
+}
+
+func TestGatherDefaultsScanTimeoutCancelsPackageDetection(t *testing.T) {
+	t.Chdir(t.TempDir())
+	spec := config.LanguageSpec{
+		ID:         "alpha",
+		Extensions: []string{".alpha"},
+		DetectPackages: func(ctx context.Context, _ string) ([]string, error) {
+			<-ctx.Done()
+			return []string{"partial.prefix"}, ctx.Err()
+		},
+	}
+
+	a, det, err := gatherDefaults(t.Context(), &initOptions{
+		languages:   []string{"alpha"},
+		scanTimeout: 20 * time.Millisecond,
+	}, []config.LanguageSpec{spec})
+
+	require.NoError(t, err)
+	assert.True(t, det.Truncated)
+	assert.Equal(t, []string{"partial.prefix"}, a.PackagesByLanguage["alpha"])
 }
 
 func TestWriteConfig(t *testing.T) {

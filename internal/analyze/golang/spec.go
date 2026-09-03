@@ -5,6 +5,7 @@ package golang
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -35,7 +36,10 @@ func Spec() config.LanguageSpec {
 
 // detectPackages reads the module line of <root>/go.mod. A missing file or
 // a file without a module line yields no prefixes.
-func detectPackages(root string) ([]string, error) {
+func detectPackages(ctx context.Context, root string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	f, err := os.Open(filepath.Join(root, "go.mod"))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

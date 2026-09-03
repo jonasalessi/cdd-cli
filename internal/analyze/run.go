@@ -28,10 +28,9 @@ var ErrTimeout = errors.New("analysis stopped before every file was analyzed")
 // that a configured language claims and the include/exclude patterns keep,
 // and returns the weighed report.
 //
-// The languages are checked up front: a configured language the registry
-// does not know, or one whose analyzer does not exist yet, is an error
-// before a single file is read, so the outcome does not depend on which
-// files the tree happens to hold.
+// A configured language the registry does not know is rejected up front. An
+// unavailable analyzer is rejected only when the requested files select its
+// language, and is still rejected before any candidate is analyzed.
 //
 // Files are analyzed in parallel, one analyzer per worker and language, and
 // the reports come back in path order. When req.Config.Timeout elapses the
@@ -39,17 +38,26 @@ var ErrTimeout = errors.New("analysis stopped before every file was analyzed")
 // ErrTimeout; any other failure aborts the run naming the file.
 func Run(ctx context.Context, req Request) (RunResult, error) {
 	start := time.Now()
+	if req.Config == nil {
+		return RunResult{}, errors.New("analyze: no configuration")
+	}
+	if req.Config.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, req.Config.Timeout)
+		defer cancel()
+	}
 	p, err := newPlan(req)
 	if err != nil {
 		return RunResult{}, err
 	}
-	if p.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.timeout)
-		defer cancel()
-	}
 	found, err := p.collect(ctx, req.Root, req.Paths)
 	if err != nil {
+		return RunResult{}, err
+	}
+	if err := p.initializeSelected(ctx, req.Config, req.Root, found); err != nil {
+		if stoppedEarly(err) {
+			return p.stoppedResult(start, req.Root, nil, len(found), false)
+		}
 		return RunResult{}, err
 	}
 	files, err := p.analyze(ctx, req.Root, found)
@@ -58,45 +66,46 @@ func Run(ctx context.Context, req Request) (RunResult, error) {
 	}
 	slices.SortFunc(files, func(a, b FileReport) int { return strings.Compare(a.Path, b.Path) })
 	result := RunResult{Root: req.Root, Files: files, Warnings: p.warnings, Elapsed: time.Since(start)}
+	result.Blocked = result.Violations() > 0 && req.Config.Enforcement.Blocks()
 	if ctx.Err() == nil {
 		return result, nil
 	}
-	stopped := stoppedMessage(p.timeout, len(files), len(found)-len(files))
-	result.Partial = true
-	result.Warnings = append(result.Warnings, stopped)
-	return result, fmt.Errorf("%s: %w", stopped, ErrTimeout)
+	return p.stoppedResult(start, req.Root, files, len(found)-len(files), result.Blocked)
+}
+
+// languagePlan is the analyzer-specific state a selected language shares
+// with every worker.
+type languagePlan struct {
+	newAnalyzer func(Options) Analyzer
+	resolver    *resolver
+	prefixes    []string
 }
 
 // plan is the read-only knowledge a run shares with every worker: which
-// language claims which extension, how each language is weighed, limited
-// and constructed, and which files the configuration keeps.
+// configured language claims each extension, the state of the languages
+// selected by candidates, and which files the configuration keeps.
 type plan struct {
-	langs     map[config.Language]Language
-	byExt     map[string]config.Language
-	resolvers map[config.Language]*Resolver
-	prefixes  map[config.Language][]string
-	matcher   *Matcher
-	timeout   time.Duration
-	warnings  []string
+	configured []Language
+	languages  map[config.Language]languagePlan
+	byExt      map[string]config.Language
+	matcher    *matcher
+	timeout    time.Duration
+	warnings   []string
 }
 
-// newPlan resolves everything a run needs before it touches the tree.
+// newPlan indexes the configured registry metadata needed to collect
+// candidates. Analyzer-specific state is initialized after collection.
 func newPlan(req Request) (*plan, error) {
-	if req.Config == nil {
-		return nil, errors.New("analyze: no configuration")
-	}
 	p := &plan{
-		langs:     make(map[config.Language]Language),
+		languages: make(map[config.Language]languagePlan),
 		byExt:     make(map[string]config.Language),
-		resolvers: make(map[config.Language]*Resolver),
-		prefixes:  make(map[config.Language][]string),
 		timeout:   req.Config.Timeout,
 		warnings:  enforcementWarnings(req.Config.Enforcement),
 	}
-	if err := p.addLanguages(req); err != nil {
+	if err := p.indexConfigured(req); err != nil {
 		return nil, err
 	}
-	matcher, err := NewMatcher(req.Config.Include, req.Config.Exclude)
+	matcher, err := newMatcher(req.Config.Include, req.Config.Exclude)
 	if err != nil {
 		return nil, fmt.Errorf("analyze: %w", err)
 	}
@@ -104,42 +113,30 @@ func newPlan(req Request) (*plan, error) {
 	return p, nil
 }
 
-// addLanguages registers every language the configuration asks for, in
-// registry order, and reports the first one the run cannot honor.
-func (p *plan) addLanguages(req Request) error {
-	cfg := req.Config
+// indexConfigured records every configured language known to the registry,
+// regardless of whether its analyzer is available.
+func (p *plan) indexConfigured(req Request) error {
+	known := make(map[config.Language]bool, len(req.Languages))
 	for _, lang := range req.Languages {
 		id := lang.Spec.ID
-		if _, configured := cfg.Metrics[id]; !configured {
+		known[id] = true
+		if _, configured := req.Config.Metrics[id]; !configured {
 			continue
 		}
-		if lang.NewAnalyzer == nil {
-			return fmt.Errorf("no analyzer for %s yet", id)
-		}
-		resolver, err := NewResolver(cfg, id)
-		if err != nil {
-			return err
-		}
-		prefixes, err := internalPrefixes(cfg, lang.Spec, req.Root)
-		if err != nil {
-			return err
-		}
-		p.langs[id] = lang
-		p.resolvers[id] = resolver
-		p.prefixes[id] = prefixes
+		p.configured = append(p.configured, lang)
 		for _, ext := range lang.Spec.Extensions {
 			p.byExt[strings.ToLower(ext)] = id
 		}
 	}
-	return p.checkUnknown(cfg)
+	return checkUnknown(req.Config, known)
 }
 
 // checkUnknown reports a language the configuration names and the registry
 // does not know; config.Validate rejects the same file earlier.
-func (p *plan) checkUnknown(cfg *config.Config) error {
+func checkUnknown(cfg *config.Config, known map[config.Language]bool) error {
 	var unknown []string
 	for id := range cfg.Metrics {
-		if _, known := p.langs[id]; !known {
+		if !known[id] {
 			unknown = append(unknown, string(id))
 		}
 	}
@@ -150,13 +147,58 @@ func (p *plan) checkUnknown(cfg *config.Config) error {
 	return fmt.Errorf("unknown language %s in metrics", strings.Join(unknown, ", "))
 }
 
+// initializeSelected validates every language candidates selected before it
+// constructs any analyzer-specific state. The two passes ensure an
+// unavailable language stops the run before another candidate is analyzed.
+func (p *plan) initializeSelected(
+	ctx context.Context,
+	cfg *config.Config,
+	root string,
+	found []candidate,
+) error {
+	selected := make(map[config.Language]bool)
+	for _, candidate := range found {
+		selected[candidate.lang] = true
+	}
+	for _, lang := range p.configured {
+		if selected[lang.Spec.ID] && lang.NewAnalyzer == nil {
+			return fmt.Errorf("no analyzer for %s yet", lang.Spec.ID)
+		}
+	}
+	for _, lang := range p.configured {
+		id := lang.Spec.ID
+		if !selected[id] {
+			continue
+		}
+		resolver, err := newResolver(cfg, id)
+		if err != nil {
+			return err
+		}
+		prefixes, err := internalPrefixes(ctx, cfg, lang.Spec, root)
+		if err != nil {
+			return err
+		}
+		p.languages[id] = languagePlan{
+			newAnalyzer: lang.NewAnalyzer,
+			resolver:    resolver,
+			prefixes:    prefixes,
+		}
+	}
+	return nil
+}
+
 // internalPrefixes merges the configured internal package prefixes with the
 // ones the language detects under root when auto_detect is on. The result
 // is sorted and deduplicated so two runs feed the analyzer the same list.
-func internalPrefixes(cfg *config.Config, spec config.LanguageSpec, root string) ([]string, error) {
+func internalPrefixes(
+	ctx context.Context,
+	cfg *config.Config,
+	spec config.LanguageSpec,
+	root string,
+) ([]string, error) {
 	prefixes := slices.Clone(cfg.InternalCoupling.Packages)
 	if cfg.InternalCoupling.AutoDetect && spec.DetectPackages != nil {
-		detected, err := spec.DetectPackages(root)
+		detected, err := spec.DetectPackages(ctx, root)
 		if err != nil {
 			return nil, fmt.Errorf("detect %s packages: %w", spec.ID, err)
 		}
@@ -250,9 +292,10 @@ func (p *plan) analyzeFile(
 	root string,
 	c candidate,
 ) (FileReport, error) {
+	lang := p.languages[c.lang]
 	analyzer, built := analyzers[c.lang]
 	if !built {
-		analyzer = p.langs[c.lang].NewAnalyzer(Options{InternalPrefixes: p.prefixes[c.lang]})
+		analyzer = lang.newAnalyzer(Options{InternalPrefixes: lang.prefixes})
 		analyzers[c.lang] = analyzer
 	}
 	src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(c.path)))
@@ -266,9 +309,30 @@ func (p *plan) analyzeFile(
 	return FileReport{
 		Path:     c.path,
 		Language: c.lang,
-		Units:    p.resolvers[c.lang].Resolve(c.path, result.Units),
+		Units:    lang.resolver.Resolve(c.path, result.Units),
 		Warnings: result.Warnings,
 	}, nil
+}
+
+// stoppedResult builds the partial result returned when the shared run
+// context ends during setup, collection, or analysis.
+func (p *plan) stoppedResult(
+	start time.Time,
+	root string,
+	files []FileReport,
+	skipped int,
+	blocked bool,
+) (RunResult, error) {
+	stopped := stoppedMessage(p.timeout, len(files), skipped)
+	result := RunResult{
+		Root:     root,
+		Files:    files,
+		Warnings: append(slices.Clone(p.warnings), stopped),
+		Partial:  true,
+		Elapsed:  time.Since(start),
+	}
+	result.Blocked = blocked
+	return result, fmt.Errorf("%s: %w", stopped, ErrTimeout)
 }
 
 // closeAnalyzers releases the analyzers that hold resources, which for a

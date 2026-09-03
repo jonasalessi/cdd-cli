@@ -13,6 +13,7 @@ import (
 // — usually a coding agent — can split a line on spaces and on "=".
 const (
 	statusPass = "PASS"
+	statusWarn = "WARN"
 	statusFail = "FAIL"
 	// labelViolation opens a unit above its limit, labelUnit one within it.
 	labelViolation = "violation"
@@ -48,16 +49,20 @@ func renderConsole(w io.Writer, doc Report) error {
 	return p.err
 }
 
-// consoleHeadline writes the verdict: the run fails as soon as one unit is
-// over its limit, and the counts are the whole run even when the listing
+// consoleHeadline writes the verdict from the finalized blocking outcome:
+// PASS means no violations, WARN means violations do not block, and FAIL
+// means violations block. Counts are for the whole run even when the listing
 // below is filtered.
 func consoleHeadline(p *printer, doc Report) {
 	status := statusPass
 	if doc.Summary.Violations > 0 {
-		status = statusFail
+		status = statusWarn
+		if doc.Blocked {
+			status = statusFail
+		}
 	}
-	p.printf("cdd check: %s violations=%d units=%d root=%s elapsed=%s",
-		status, doc.Summary.Violations, doc.Summary.Units, doc.Root, formatElapsed(doc.ElapsedMS))
+	p.printf("cdd check: %s violations=%d units=%d blocked=%t root=%s elapsed=%s",
+		status, doc.Summary.Violations, doc.Summary.Units, doc.Blocked, doc.Root, formatElapsed(doc.ElapsedMS))
 	if doc.Partial {
 		p.printf(" partial=true")
 	}
