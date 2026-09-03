@@ -1,5 +1,7 @@
 # CDD CLI: Cognitive-Driven Development Analyzer
 
+[![CI](https://github.com/jonasalessi/cdd-cli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jonasalessi/cdd-cli/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/jonasalessi/cdd-cli/graph/badge.svg)](https://codecov.io/gh/jonasalessi/cdd-cli)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
 `cdd` measures how much of your code a reader has to hold in their head at

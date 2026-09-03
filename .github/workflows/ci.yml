@@ -25,12 +25,21 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
-      - run: make test
+      - run: make cover
+      - name: upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.out
+          use_oidc: true
+          fail_ci_if_error: true
       - run: make build
       - run: ./bin/cdd version
       - name: dogfood config stays reproducible
