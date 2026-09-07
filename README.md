@@ -27,28 +27,13 @@ somewhere between 20 and 40, and comes down as the code improves.
 
 ## Installation
 
-Every tagged release ships a binary for Linux and macOS, on amd64 and arm64.
-Pick one from the [releases page](https://github.com/jonasalessi/cdd-cli/releases),
-check it against the `checksums.txt` of the same release, and put it on your
-path:
-
-```sh
-tar -xzf cdd_v0.1.0_darwin_arm64.tar.gz
-sudo install cdd_v0.1.0_darwin_arm64/cdd /usr/local/bin/cdd
-```
-
-The Linux archives are built on Ubuntu 24.04, so they need glibc 2.39 or
-newer. Anything older builds from source, as does Windows.
-
-Or install it with Go 1.25 or newer:
-
 ```sh
 go install github.com/jonasalessi/cdd-cli@latest
 ```
 
-That build reports only its version, since the commit and the date come from
-the release build. It also needs a C compiler: the TypeScript analyzer embeds
-Tree-sitter through cgo, so you need `CGO_ENABLED=1` and a working toolchain:
+That build needs Go 1.25 or newer and a C compiler. The TypeScript analyzer
+embeds Tree-sitter through cgo, so you need `CGO_ENABLED=1` and a working
+toolchain:
 
 | Platform | Toolchain |
 | --- | --- |
