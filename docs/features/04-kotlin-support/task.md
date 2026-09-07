@@ -19,6 +19,10 @@ credible. Every rule below was chosen for cross-language comparability with the
 shipped TypeScript rules first, fidelity to `docs/cdd.md` second, and
 Kotlin-specific tuning only where the language genuinely differs.
 
+[test-cases.md](test-cases.md) is the companion to this file: every
+constraint below has a numbered test case there, and a task is done when its
+cases are checked-in, passing tests.
+
 ## Current state (verified 2026-09-07)
 
 - `internal/analyze/kotlin/spec.go` exists, is registered in
@@ -128,7 +132,7 @@ tree on 2026-09-07. Quoted strings are anonymous tokens, reachable through
 | `exception_handling` | `try_expression` +1 on its first `block` child (the guarded body, not the whole expression); each `catch_block` +1; `finally_block` +1. `try { } catch { } finally { }` = 3. |
 | `internal_coupling` | +1 per import classified internal (FR-7) that the unit uses (FR-8). Occurrence on the `import` node. |
 | `external_coupling` | +1 per import classified external, same attribution. |
-| `inheritance` | +1 per `delegation_specifier` under a `class_declaration`'s or `object_declaration`'s `delegation_specifiers`, whatever its shape: `constructor_invocation` (`: Base()`), bare `user_type` (`: Iface`), `explicit_delegation` (`: Iface by d`). Occurrence on the specifier's `user_type`, so `: A, B` is two occurrences a reader can tell apart. A nested class's specifiers bill to the enclosing unit like everything else nested. |
+| `inheritance` | +1 per `delegation_specifier` anywhere in the unit's subtree — under a class, an object, a companion, an enum, or an anonymous `object : Iface { }` expression — whatever its shape: `constructor_invocation` (`: Base()`), bare `user_type` (`: Iface`), `explicit_delegation` (`: Iface by d`). Occurrence on the specifier's `user_type`, so `: A, B` is two occurrences a reader can tell apart. A nested declaration's specifiers bill to the enclosing unit like everything else nested. |
 | `local_variable` | `property_declaration` inside the unit (locals in a `block`, members in a `class_body`) +1 each, `multi_variable_declaration` included (one per declaration, not per name). `class_parameter` +1 only when its first anonymous child is `"val"` or `"var"`. `for_statement` +1 on its `variable_declaration` or `multi_variable_declaration` binding. **Not** counted: `enum_entry`; a `property_declaration` in an `interface` unit's `class_body` that has no initializer, no `property_delegate` and no accessor `function_body` (a shape, not a variable, like a TS interface property signature); function parameters; lambda parameters; the `property` unit's own declaration (FR-11). |
 | `lambda` | `lambda_literal` +1 (trailing form under `annotated_lambda` included), `anonymous_function` +1, `callable_reference` +1 (`::name`, `Type::name` when the grammar produces the node). The `property` unit's own body is excluded (FR-11). Known gap: `String::trim` parses as `navigation_expression` in v1.1.0 and is not counted; document, do not heuristically match `::` in text. |
 
@@ -314,6 +318,7 @@ internal/analyze/kotlin/
     imports.go      import classification and attribution (FR-7, FR-8)
     *_test.go, testdata/*.kt   the worked fixtures above, one file per metric
 internal/languages/languages.go    FR-13, one line
+docs/features/04-kotlin-support/test-cases.md   case ids cited from the tests (`// TC-…`)
 README.md                          language paragraph, metric table row, binary note
 internal/config/templates/cdd.config.yaml.tmpl   line 30 comment (FR-2)
 CONTRIBUTING.md                    grammar provenance note
@@ -323,6 +328,9 @@ cmd/testdata/golden/*, internal/config/testdata/golden/*   regenerated if a desc
 ## Tasks
 
 Commit per task; the task title is the commit message body's first line.
+Each task's acceptance criterion is shorthand for the cases listed under the
+same task heading in [test-cases.md](test-cases.md); those cases are the
+contract.
 
 - **T1 — `refactor: extract tree-sitter helpers shared by analyzers`** (FR-1).
   Move the listed helpers into `internal/analyze/internal/treesitter`; TS
@@ -383,6 +391,9 @@ Commit per task; the task title is the commit message body's first line.
       `internal/analyze/internal/treesitter`; `internal/analyze/typescript`
       coverage does not drop
 - [ ] Every worked fixture above is a checked-in test with the stated totals
+- [ ] Every case in [test-cases.md](test-cases.md) is a checked-in test,
+      citing its id, and passes; cross-cutting invariants TC-X1 … TC-X6 run
+      over every fixture under `testdata/`
 - [ ] The T1 refactor commit produces byte-identical TS reports on the
       existing fixtures
 - [ ] CI dogfood gate green
