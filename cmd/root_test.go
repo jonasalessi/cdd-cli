@@ -36,13 +36,15 @@ func TestHelpListsSubcommands(t *testing.T) {
 }
 
 func TestVersion(t *testing.T) {
+	stubBuildInfo(t, nil)
+
 	out, _, code := run(t, "version")
 	assert.Equal(t, 0, code)
-	assert.Equal(t, "cdd dev (none, unknown)\n", out)
+	assert.Equal(t, "cdd dev\n", out)
 
 	out, _, code = run(t, "--version")
 	assert.Equal(t, 0, code)
-	assert.Equal(t, "cdd dev (none, unknown)\n", out)
+	assert.Equal(t, "cdd dev\n", out)
 }
 
 func TestUnknownCommand(t *testing.T) {
