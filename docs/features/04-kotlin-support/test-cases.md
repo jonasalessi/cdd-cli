@@ -47,15 +47,20 @@ literals (`make check-literals`).
 
 ## T2 — Spec corrections (FR-2, FR-3)
 
+One test pins the whole spec rather than one field at a time: a golden
+struct fails with a diff naming exactly the field that drifted, and the
+registry's `TestSpecCompleteness` already validates shape (non-empty fields,
+known metric ids, at least three applicable metrics), so the per-language
+test only has to pin values.
+
 | ID | Level | Case | Expectation |
 |---|---|---|---|
-| TC-S1 | unit | `kotlin.Spec().Extensions` | Equals `[]string{".kt"}`. |
-| TC-S2 | unit | `kotlin.Spec().Description(config.MetricCodeBranch)` | Does not contain `?:`; contains `?.`. |
-| TC-S3 | unit | `kotlin.Spec().Description(config.MetricCondition)` | Contains `?:`. |
-| TC-S4 | unit | `TestDetectPackagesSkipsJavaFiles` (existing) | Still returns `["com.acme.billing", "com.acme.shared"]` — `build.gradle.kts` was never contributing a package, so dropping `.kts` changes nothing. |
-| TC-S5 | unit | Create a temp project holding only `Main.kts` with a `package a.b` line. | `DetectPackages` returns empty: `.kts` is no longer read. |
-| TC-S6 | integration | `cdd init --languages kotlin` golden in `cmd/testdata/golden` and the `internal/config` render goldens. | Regenerated; the rendered `code_branch` comment for Kotlin no longer mentions `?:`, the `condition` comment does. CI dogfood gate green. |
-| TC-S7 | unit | `internal/languages` `TestSpecCompleteness`, `TestLiterals` | Still green — the literal `".kt"` and the description strings live only in `spec.go`. |
+| TC-S1 | unit | `TestSpec`: `got := Spec()`; `require.NotNil(got.DetectPackages)`; set `got.DetectPackages = nil`; `assert.Equal(t, want, got)` where `want` is the full `config.LanguageSpec` literal — `ID`, `DisplayName` `"Kotlin"`, `Extensions` `[]string{".kt"}`, `NotApplicable` nil, `DefaultExcludes` `{"**/src/test/**", "**/build/**", "**/target/**"}`, `Descriptions` keyed by `config.Metric…` constants with `code_branch` = `if/when, loops, safe calls (?.)`, `condition` = `&&, \|\| and ?: clauses`, `inheritance` and `lambda` unchanged, `PackageExample` `"com.acme.app"`, `LimitExamples` unchanged. | Equal. Go funcs are not comparable, which is why `DetectPackages` is checked for presence and then cleared on the copy. |
+| TC-S2 | unit | Mutation safety: `Spec().Extensions[0] = ".java"` then `Spec().Extensions` again; same for `DefaultExcludes[0]` and a `Descriptions` entry. | Second call returns the original values — `Spec()` must `slices.Clone` its slices and copy its map, as the TypeScript spec does. Today `Extensions: extensions` hands out the package variable; T2 fixes that. |
+| TC-S3 | unit | `TestDetectPackagesSkipsJavaFiles` (existing) | Still returns `["com.acme.billing", "com.acme.shared"]` — `build.gradle.kts` was never contributing a package, so dropping `.kts` changes nothing. |
+| TC-S4 | unit | Create a temp project holding only `Main.kts` with a `package a.b` line. | `DetectPackages` returns empty: `.kts` is no longer read. |
+| TC-S5 | integration | `cdd init --languages kotlin` golden in `cmd/testdata/golden` and the `internal/config` render goldens. | Regenerated; the rendered `code_branch` comment for Kotlin no longer mentions `?:`, the `condition` comment does. CI dogfood gate green. |
+| TC-S6 | unit | `internal/languages` `TestSpecCompleteness`, `TestLiterals` | Still green — the literal `".kt"` and the description strings live only in `spec.go`. |
 
 ## T3 — Parsing (FR-6, FR-12)
 

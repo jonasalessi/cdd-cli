@@ -106,7 +106,7 @@ TypeScript pair); CGO and the C-compiler prerequisite are unchanged.
 |---|---|---|
 | FR-1 | The grammar-agnostic tree-sitter helpers move out of `internal/analyze/typescript` into `internal/analyze/internal/treesitter` with no behaviour change: the parse budget and deadline-to-timeout conversion, the cursor `walk`, `namedChildren`/`namedChildrenInField`/`firstNamedChild`/`text`, `srcSpan`/`spanOf`/`position`, `firstErrorNode` and the syntax-warning text, and the source-order occurrence sort. The `kind` table, `grammar` struct, every metric rule and every unit rule stay in the language package. | `internal/analyze/internal/treesitter`, `internal/analyze/typescript` |
 | FR-2 | Elvis `?:` is a `condition`. The Kotlin spec's `code_branch` description becomes `if/when, loops, safe calls (?.)` and its `condition` description becomes `&&, \|\| and ?: clauses`. The README metric table row and the config template comment stop listing `?:` under `code_branch`. Golden files that render the description are regenerated. | `internal/analyze/kotlin/spec.go`, `README.md`, `internal/config/templates/cdd.config.yaml.tmpl` |
-| FR-3 | `Extensions` is `[".kt"]`. `cdd check` never opens a `.kts` file. `jvm.Prefixes` receives the same slice, so package detection stops reading build scripts too (they declare no package; the detection test's expectation is unchanged). | `internal/analyze/kotlin/spec.go` |
+| FR-3 | `Extensions` is `[".kt"]`. `cdd check` never opens a `.kts` file. `jvm.Prefixes` receives the same roster, so package detection stops reading build scripts too (they declare no package; the detection test's expectation is unchanged). `Spec()` returns cloned slices and a copied map, as the TypeScript spec does; today it hands out the package variable, so a caller's mutation would leak into every later call. | `internal/analyze/kotlin/spec.go` |
 | FR-4 | A Kotlin **unit** is each direct named child of `source_file` that is a `class_declaration` (kind by keyword token: `interface` → `interface`; `class` with `class_modifier` `enum` → `enum`; every other `class` → `class`, `sealed`/`data`/`annotation`/`abstract`/`open`/`inner`/`value` included), an `object_declaration` (`object`), a `function_declaration` (`function`, extension functions included), a `type_alias` (`typealias`), or a `property_declaration` (`property`) whose initializer is a `lambda_literal` or `anonymous_function`, or which carries a `getter` or `setter` with a `function_body`, or which has a `property_delegate`. A top-level property holding any other value is not a unit. Nothing nested inside a unit is a unit. `Name` is the `name:` field (`type:` for `type_alias`; the `variable_declaration` identifier for a property; for an extension function, the bare function name without the receiver). `Line`/`Col` point at the declaration's first token, `modifiers` excluded. | `internal/analyze/kotlin/units.go` |
 | FR-5 | ICPs are counted per unit over the unit's whole subtree using the metric→node mapping below. The analyzer counts every metric; the pipeline drops the disabled ones. Every charge records an `analyze.Occurrence`; `Counts` equals the sum of `Occurrences` per metric. | `internal/analyze/kotlin/metrics.go` |
 | FR-6 | A file whose root `HasError()` yields no units and one warning `syntax error at L:C` naming the first `ERROR` or `MISSING` node, falling back to `1:1` when the root is flagged but no such node exists (the Kotlin grammar does this on some unusual one-line layouts). Same shape as TS FR-5. | `internal/analyze/kotlin/analyzer.go` |
@@ -340,9 +340,10 @@ contract.
   before and after produces identical JSON reports.
 
 - **T2 — `fix: classify Kotlin elvis as condition and drop .kts`** (FR-2,
-  FR-3). Spec strings, extensions, README row, template comment; regenerate
-  goldens. *Accept:* CI dogfood gate green; `kotlin` spec tests pass with
-  the unchanged detection expectation.
+  FR-3). Spec strings, extensions, clone-on-return, README row, template
+  comment; regenerate goldens. Replace the field-by-field spec tests with one
+  whole-struct `TestSpec` (TC-S1). *Accept:* CI dogfood gate green; `kotlin`
+  spec tests pass with the unchanged detection expectation.
 
 - **T3 — `feat: parse Kotlin with tree-sitter`** (FR-6, FR-12). Dependency,
   `parser.go`, `analyzer.go` returning zero units, grammar-resolution test,
