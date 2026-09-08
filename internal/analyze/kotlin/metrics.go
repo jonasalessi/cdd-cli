@@ -98,17 +98,21 @@ func (c *counter) sortedOccurrences() []analyze.Occurrence {
 // construct nested inside it, members, local functions and lambdas
 // included.
 func (c *counter) visit(n *ts.Node) bool {
-	c.countControlFlow(c.g.kindOf(n), n)
+	k := c.g.kindOf(n)
+	if !c.countControlFlow(k, n) {
+		c.countDeclaration(k, n)
+	}
 	return true
 }
 
-// countControlFlow charges the branch and condition metrics, reporting
-// whether k was one of theirs.
+// countControlFlow charges the branch, condition and exception metrics,
+// reporting whether k was one of theirs.
 //
 // An `if` is one branch and its `else` another, unless that `else` opens
 // another `if`, which charges itself (FR-10). A `when` entry is one branch
 // however many values its condition lists; the `else` entry is none. Every
-// `?.` short-circuits and is one branch; `!!` asserts and is none.
+// `?.` short-circuits and is one branch; `!!` asserts and is none. `try`,
+// `return`, `break`, `continue` and `throw` are not branches.
 func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	switch k {
 	case kindIfExpression:
@@ -118,16 +122,121 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 		if n.ChildByFieldId(c.g.fields.condition) != nil {
 			c.charge(config.MetricCodeBranch, n)
 		}
-	case kindForStatement, kindWhileStatement, kindDoWhileStatement:
+	case kindForStatement:
+		c.charge(config.MetricCodeBranch, n)
+		c.countLoopBinding(n)
+	case kindWhileStatement, kindDoWhileStatement:
 		c.charge(config.MetricCodeBranch, n)
 	case kindNavigationExpression:
 		c.countSafeCall(n)
 	case kindBinaryExpression:
 		c.countCondition(n)
+	case kindTryExpression:
+		c.countTryBody(n)
+	case kindCatchBlock, kindFinallyBlock:
+		c.charge(config.MetricExceptionHandling, n)
 	default:
 		return false
 	}
 	return true
+}
+
+// countDeclaration charges the inheritance and local-variable metrics.
+//
+// A local variable is one property declaration wherever it sits -- a local
+// in a block, a member in a class body, a member of a companion -- so
+// `val (a, b) = p` is one, like `const {a, b} = x` in TypeScript. A
+// constructor parameter is one only when `val` or `var` turns it into a
+// property; a plain parameter declares nothing the body did not already
+// receive. An enum entry is a constant, not a variable. A property of an
+// interface with no initializer, no delegate and no accessor body describes
+// a shape rather than declaring a variable, like an interface's property
+// signature in TypeScript, and does not count; the same property in an
+// abstract class does, because the class may still hold it.
+func (c *counter) countDeclaration(k kind, n *ts.Node) {
+	switch k {
+	case kindDelegationSpecifier:
+		c.charge(config.MetricInheritance, c.specifierType(n))
+	case kindPropertyDeclaration:
+		if n.Id() != c.skipDeclaration && !c.isShape(n) {
+			c.charge(config.MetricLocalVariable, n)
+		}
+	case kindClassParameter:
+		if hasToken(n, c.g.tokens.val) || hasToken(n, c.g.tokens.variable) {
+			c.charge(config.MetricLocalVariable, n)
+		}
+	}
+}
+
+// specifierType returns the user_type a delegation specifier names, which
+// is where its inheritance occurrence points so that `: A, B` is two
+// occurrences a reader can tell apart. The type sits directly under the
+// specifier for `: Iface`, and one level down for `: Base()` and
+// `: Iface by d`, whose specifier wraps a constructor_invocation or an
+// explicit_delegation. A specifier of another shape is charged whole.
+func (c *counter) specifierType(n *ts.Node) *ts.Node {
+	for _, child := range treesitter.NamedChildren(n) {
+		outer := child
+		if c.g.kindOf(&outer) == kindUserType {
+			return &outer
+		}
+		for _, grandchild := range treesitter.NamedChildren(&outer) {
+			inner := grandchild
+			if c.g.kindOf(&inner) == kindUserType {
+				return &inner
+			}
+		}
+	}
+	return n
+}
+
+// isShape reports whether a property declaration is an interface member
+// with no value of its own: no initializer, no delegate, no accessor body.
+func (c *counter) isShape(n *ts.Node) bool {
+	body := n.Parent()
+	if body == nil || c.g.kindOf(body) != kindClassBody {
+		return false
+	}
+	owner := body.Parent()
+	if owner == nil || c.g.kindOf(owner) != kindClassDeclaration || !hasToken(owner, c.g.tokens.interfaceKeyword) {
+		return false
+	}
+	if hasToken(n, c.g.tokens.assign) {
+		return false
+	}
+	_, hasValue := propertyBody(c.g, n)
+	return !hasValue
+}
+
+// countTryBody charges the block a `try` guards. The occurrence sits on the
+// block rather than on the whole try_expression, whose range would cover
+// the catch and finally blocks charged beside it. The grammar has no body
+// field, so the block is the first named child of that kind.
+func (c *counter) countTryBody(n *ts.Node) {
+	for _, child := range treesitter.NamedChildren(n) {
+		body := child
+		if c.g.kindOf(&body) == kindBlock {
+			c.charge(config.MetricExceptionHandling, &body)
+			return
+		}
+	}
+	c.charge(config.MetricExceptionHandling, n)
+}
+
+// countLoopBinding charges the binding of a `for` loop as one method-level
+// temporary variable, which is what docs/cdd.md counts and what TypeScript
+// charges for a `for…of` binding. The charge is one per statement even
+// when the binding destructures, and it points at that binding, the
+// closest the grammar has to the declaration the loop never gets.
+func (c *counter) countLoopBinding(n *ts.Node) {
+	for _, child := range treesitter.NamedChildren(n) {
+		binding := child
+		switch c.g.kindOf(&binding) {
+		case kindVariableDeclaration, kindMultiVariableDeclaration:
+			c.charge(config.MetricLocalVariable, &binding)
+			return
+		}
+	}
 }
 
 // countElse charges the `else` branch of an if_expression, from the keyword

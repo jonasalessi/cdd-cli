@@ -217,3 +217,50 @@ func TestConcurrentAnalyzers(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+// TestDeclarationOccurrences pins where the exception, inheritance and
+// local-variable charges point (TC-E1, TC-I1, TC-L5).
+func TestDeclarationOccurrences(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []occurrenceAt
+	}{
+		{
+			name: "a try charges its block, then each catch and finally",
+			src:  "fun g() {\n    try { a() } catch (e: E) { b() } finally { c() }\n}\n",
+			want: []occurrenceAt{
+				{config.MetricExceptionHandling, 2, 9, 2, 16, 1},
+				{config.MetricExceptionHandling, 2, 17, 2, 37, 1},
+				{config.MetricExceptionHandling, 2, 38, 2, 53, 1},
+			},
+		},
+		{
+			name: "each specifier charges its type, not the whole clause",
+			src:  "class L(private val repo: Repo, clock: Clock) : Base(), Auditable, Printer by ConsolePrinter()\n",
+			want: []occurrenceAt{
+				{config.MetricLocalVariable, 1, 9, 1, 31, 1},
+				{config.MetricInheritance, 1, 49, 1, 53, 1},
+				{config.MetricInheritance, 1, 57, 1, 66, 1},
+				{config.MetricInheritance, 1, 68, 1, 75, 1},
+			},
+		},
+		{
+			name: "a for binding is charged where it is bound",
+			src:  "fun l(xs: List<Int>, m: Map<String, Int>) {\n    for (x in xs) { }\n    for ((k, v) in m) { }\n}\n",
+			want: []occurrenceAt{
+				{config.MetricCodeBranch, 2, 5, 2, 22, 1},
+				{config.MetricLocalVariable, 2, 10, 2, 11, 1},
+				{config.MetricCodeBranch, 3, 5, 3, 26, 1},
+				{config.MetricLocalVariable, 3, 10, 3, 16, 1},
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res := analyzeSource(t, c.src)
+			require.Len(t, res.Units, 1)
+			require.Equal(t, occurrences(c.want), res.Units[0].Occurrences)
+		})
+	}
+}

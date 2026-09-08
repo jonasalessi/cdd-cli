@@ -87,3 +87,87 @@ func TestElseAfterAComment(t *testing.T) {
 	res := analyzeSource(t, "fun f(a: Boolean) {\n    if (a) {\n    } else // why\n    {\n    }\n}\n")
 	requireCount(t, unitNamed(t, res, "f"), config.MetricCodeBranch, 2)
 }
+
+// TestExceptions pins exception_handling: one per guarded block, catch and
+// finally; a library call is not a block (TC-E1 … TC-E4, TC-B16).
+func TestExceptions(t *testing.T) {
+	examples := analyzeFixture(t, "cdd_examples.kt")
+	requireCount(t, unitNamed(t, examples, "guarded"), config.MetricExceptionHandling, 3)
+
+	res := analyzeFixture(t, "exceptions.kt")
+	require.Empty(t, res.Warnings)
+	requireCount(t, unitNamed(t, res, "twoCatches"), config.MetricExceptionHandling, 3)
+	requireCount(t, unitNamed(t, res, "finallyOnly"), config.MetricExceptionHandling, 2)
+	caught := unitNamed(t, res, "caught")
+	requireCount(t, caught, config.MetricExceptionHandling, 0)
+
+	branches := analyzeFixture(t, "branches.kt")
+	tryValue := unitNamed(t, branches, "tryValue")
+	requireCount(t, tryValue, config.MetricExceptionHandling, 2)
+	requireCount(t, tryValue, config.MetricLocalVariable, 1)
+}
+
+// TestInheritance pins inheritance: one per delegation specifier, whatever
+// its shape and wherever it nests (TC-I1 … TC-I7).
+func TestInheritance(t *testing.T) {
+	res := analyzeFixture(t, "inheritance.kt")
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit               string
+		inheritance, local int
+	}{
+		{
+			"Ledger",
+			3,
+			1,
+		}, // TC-I1: `: Base(), Auditable, Printer by ConsolePrinter()`; repo is a property, clock a parameter
+		{"Auditable", 2, 0}, // TC-I2
+		{"Registry", 1, 0},  // TC-I3
+		{"Bare", 0, 0},      // TC-I4
+		{"Outer", 1, 0},     // TC-I5: the inner class's heritage bills to Outer
+		{"Color", 1, 0},     // TC-I6: enum entries are not variables
+		{"X", 1, 0},         // TC-I6: type arguments do not add
+		// TC-I7: an anonymous object implements the interface as much as a
+		// named one does, so its specifier is charged to the enclosing unit.
+		{"anonymous", 1, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			u := unitNamed(t, res, c.unit)
+			requireCount(t, u, config.MetricInheritance, c.inheritance)
+			requireCount(t, u, config.MetricLocalVariable, c.local)
+		})
+	}
+}
+
+// TestLocals pins local_variable: property declarations and `val`/`var`
+// constructor parameters, one per declaration (TC-L1 … TC-L11).
+func TestLocals(t *testing.T) {
+	res := analyzeFixture(t, "locals.kt")
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit  string
+		local int
+	}{
+		{"P", 2},         // TC-L2: `c` is a parameter
+		{"body", 4},      // TC-L3: destructuring is one
+		{"Members", 3},   // TC-L4: a getter and a delegate still declare
+		{"loops", 2},     // TC-L5
+		{"Shape", 1},     // TC-L6: `x` is a shape, `y` has an accessor body
+		{"Abstract", 1},  // TC-L7: the exemption is for interfaces only
+		{"Colors", 0},    // TC-L8
+		{"params", 1},    // TC-L9: parameters, lambda parameters, `it`, catch bindings are none
+		{"j", 0},         // TC-L10: the unit's own declaration
+		{"Companion", 2}, // TC-L11: companion member and init-block local
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			requireCount(t, unitNamed(t, res, c.unit), config.MetricLocalVariable, c.local)
+		})
+	}
+	units := analyzeFixture(t, "units.kt")
+	requireCount(t, unitNamed(t, units, "E"), config.MetricLocalVariable, 1) // TC-L1
+	requireCount(t, unitNamed(t, units, "C"), config.MetricLocalVariable, 0)
+	branches := analyzeFixture(t, "branches.kt")
+	requireCount(t, unitNamed(t, branches, "loops"), config.MetricLocalVariable, 2)
+}
