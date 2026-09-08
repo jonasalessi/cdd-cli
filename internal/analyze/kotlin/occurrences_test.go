@@ -264,3 +264,13 @@ func TestDeclarationOccurrences(t *testing.T) {
 		})
 	}
 }
+
+// TestLambdaOccurrences pins that a lambda charges the literal itself, a
+// trailing one included, and that a property unit's body is skipped.
+func TestLambdaOccurrences(t *testing.T) {
+	res := analyzeSource(t, "fun t(xs: List<Int>) = xs.map { it * 2 }\nval onEvent: (Int) -> Unit = { println(it) }\n")
+	require.Equal(t, occurrences([]occurrenceAt{
+		{config.MetricLambda, 1, 31, 1, 41, 1},
+	}), unitNamed(t, res, "t").Occurrences)
+	require.Empty(t, unitNamed(t, res, "onEvent").Occurrences)
+}

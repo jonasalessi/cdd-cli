@@ -141,7 +141,8 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	return true
 }
 
-// countDeclaration charges the inheritance and local-variable metrics.
+// countDeclaration charges the inheritance, local-variable and lambda
+// metrics.
 //
 // A local variable is one property declaration wherever it sits -- a local
 // in a block, a member in a class body, a member of a companion -- so
@@ -153,6 +154,14 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 // a shape rather than declaring a variable, like an interface's property
 // signature in TypeScript, and does not count; the same property in an
 // abstract class does, because the class may still hold it.
+//
+// A lambda is a lambda literal, trailing or not, an anonymous function or
+// a callable reference. Scope functions (`let`, `apply`, `run`, …) are not
+// exempted: telling them apart from any other receiver's `apply` needs
+// type resolution, and `lambda` is opt-in for the teams that weigh it. A
+// property unit's own body is the unit, not one of its lambdas (FR-11).
+// `String::trim` parses as a navigation expression in this grammar and is
+// not counted.
 func (c *counter) countDeclaration(k kind, n *ts.Node) {
 	switch k {
 	case kindDelegationSpecifier:
@@ -164,6 +173,10 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 	case kindClassParameter:
 		if hasToken(n, c.g.tokens.val) || hasToken(n, c.g.tokens.variable) {
 			c.charge(config.MetricLocalVariable, n)
+		}
+	case kindLambdaLiteral, kindAnonymousFunction, kindCallableReference:
+		if n.Id() != c.skipLambda {
+			c.charge(config.MetricLambda, n)
 		}
 	}
 }

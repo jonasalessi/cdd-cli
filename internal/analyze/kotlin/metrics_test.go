@@ -171,3 +171,68 @@ func TestLocals(t *testing.T) {
 	branches := analyzeFixture(t, "branches.kt")
 	requireCount(t, unitNamed(t, branches, "loops"), config.MetricLocalVariable, 2)
 }
+
+// TestLambdas pins lambda: literals, anonymous functions and callable
+// references, with no scope-function exemption and the property unit's own
+// body excluded (TC-F1 … TC-F9, TC-F4, TC-B9, TC-E4).
+func TestLambdas(t *testing.T) {
+	res := analyzeFixture(t, "lambdas.kt")
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit          string
+		lambda, local int
+	}{
+		{"total", 4, 3},      // TC-F1
+		{"onEvent", 0, 0},    // TC-F3: the unit's own body
+		{"scopes", 6, 0},     // TC-F2: let, apply, also, run, with, takeIf
+		{"lazyValue", 1, 0},  // TC-F4: the lambda is lazy's argument, not the unit's body
+		{"nested", 2, 0},     // TC-F5
+		{"references", 1, 4}, // TC-F6, TC-F7: see TestCallableReferenceForms
+		{"WithLambda", 1, 1}, // TC-F8: only top-level property units skip their body
+		{"coroutines", 3, 0}, // TC-F9, TC-E4
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			u := unitNamed(t, res, c.unit)
+			requireCount(t, u, config.MetricLambda, c.lambda)
+			requireCount(t, u, config.MetricLocalVariable, c.local)
+		})
+	}
+	require.NotContains(t, unitNames(res), "plain")
+
+	branches := analyzeFixture(t, "branches.kt")
+	requireCount(t, unitNamed(t, branches, "let"), config.MetricLambda, 1) // TC-B9
+	requireCount(t, unitNamed(t, branches, "Holder"), config.MetricLambda, 1)
+	units := analyzeFixture(t, "units.kt")
+	requireCount(t, unitNamed(t, units, "l"), config.MetricLambda, 1)
+	requireCount(t, unitNamed(t, units, "j"), config.MetricLambda, 0)
+	requireCount(t, unitNamed(t, units, "anon"), config.MetricLambda, 0)
+	exceptions := analyzeFixture(t, "exceptions.kt")
+	requireCount(t, unitNamed(t, exceptions, "caught"), config.MetricLambda, 1) // TC-E4
+}
+
+// TestCallableReferenceForms (TC-F6, TC-F7) pins what the grammar makes of
+// each `::` form. In tree-sitter-kotlin v1.1.0 only the bare `::name`
+// parses as a callable_reference; `String::trim`, `this::render` and
+// `Foo::class` parse as a navigation_expression and count 0. The grammar
+// is ambiguous on the point: the same `String::trim` becomes a
+// callable_reference when it is the last thing in the file, so every case
+// here is followed by another declaration, the way real code is. A grammar
+// bump that settles the first two as references will move their counts to
+// 1 and land here, where the change can be accepted deliberately;
+// `Foo::class` is a class literal and must stay 0.
+func TestCallableReferenceForms(t *testing.T) {
+	cases := map[string]int{
+		"::render":         1,
+		"xs.map(::render)": 1,
+		"String::trim":     0,
+		"this::render":     0,
+		"Foo::class":       0,
+	}
+	for form, want := range cases {
+		t.Run(form, func(t *testing.T) {
+			res := analyzeSource(t, "fun f() = "+form+"\nfun g() = 1\n")
+			requireCount(t, unitNamed(t, res, "f"), config.MetricLambda, want)
+		})
+	}
+}
