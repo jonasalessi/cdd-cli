@@ -133,6 +133,22 @@ func TestNestedDeclarationsBillToTheEnclosingUnit(t *testing.T) {
 	}
 }
 
+// TestVisibilityNeverFilters (TC-U9): every top-level visibility yields a
+// unit, and a protected member bills to its class.
+func TestVisibilityNeverFilters(t *testing.T) {
+	res := analyzeSource(
+		t,
+		"private class A\ninternal class B\npublic class C\nclass D {\n    protected fun f() {\n        if (x) {}\n    }\n}\n",
+	)
+	require.Equal(t, []unitHead{
+		{"A", unitClass, 1, 9},
+		{"B", unitClass, 2, 10},
+		{"C", unitClass, 3, 8},
+		{"D", unitClass, 4, 1},
+	}, heads(res))
+	requireCount(t, unitNamed(t, res, "D"), config.MetricCodeBranch, 1)
+}
+
 // TestTopLevelCompanionObject (TC-U11): `companion object` outside a class
 // is not Kotlin. The grammar does not produce a companion_object node at
 // the top level; it reads the three words as an infix_expression and
