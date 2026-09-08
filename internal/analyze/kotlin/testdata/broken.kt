@@ -1,0 +1,3 @@
+class Oops {
+    fun f( {
+}
