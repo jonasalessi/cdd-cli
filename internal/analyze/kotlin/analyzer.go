@@ -88,14 +88,26 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 	return treesitter.Parse(ctx, a.parser, src)
 }
 
-// measure reports one unit with its metadata; the counters follow in the
-// metric tasks.
+// measure counts one unit and locates every construct it charged.
 func (a *analyzer) measure(d *unitDecl) analyze.Unit {
+	c := newCounter(a.grammar, d)
+	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
 	return analyze.Unit{
-		Name:   d.name,
-		Kind:   d.kind,
-		Line:   d.line,
-		Col:    d.col,
-		Counts: zeroCounts(),
+		Name:        d.name,
+		Kind:        d.kind,
+		Line:        d.line,
+		Col:         d.col,
+		Counts:      c.counts,
+		Occurrences: c.sortedOccurrences(),
 	}
+}
+
+// treeCursor returns the analyzer's cursor, creating it on first use. A
+// cursor is not bound to the tree it was created from: the walk resets it
+// onto whichever node it is given.
+func (a *analyzer) treeCursor(n *ts.Node) *ts.TreeCursor {
+	if a.cursor == nil {
+		a.cursor = n.Walk()
+	}
+	return a.cursor
 }

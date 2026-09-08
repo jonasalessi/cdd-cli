@@ -54,6 +54,8 @@ const (
 	kindFinallyBlock
 	kindBlock
 	kindIdentifier
+	kindLineComment
+	kindBlockComment
 	kindCount
 )
 
@@ -97,6 +99,8 @@ var kindNames = [kindCount]string{
 	kindFinallyBlock:             "finally_block",
 	kindBlock:                    "block",
 	kindIdentifier:               "identifier",
+	kindLineComment:              "line_comment",
+	kindBlockComment:             "block_comment",
 }
 
 // Grammar field names the analyzer navigates by. The grammar has no
