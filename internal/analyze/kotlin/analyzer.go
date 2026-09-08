@@ -66,10 +66,11 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 	if root.HasError() {
 		return analyze.FileResult{Warnings: []string{treesitter.SyntaxWarning(root)}}, nil
 	}
+	mods := modules(a.grammar, root, src, a.prefixes)
 	decls := units(a.grammar, root, src)
 	out := make([]analyze.Unit, 0, len(decls))
 	for i := range decls {
-		out = append(out, a.measure(&decls[i]))
+		out = append(out, a.measure(&decls[i], mods, src))
 	}
 	return analyze.FileResult{Units: out}, nil
 }
@@ -88,10 +89,12 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 	return treesitter.Parse(ctx, a.parser, src)
 }
 
-// measure counts one unit and locates every construct it charged.
-func (a *analyzer) measure(d *unitDecl) analyze.Unit {
-	c := newCounter(a.grammar, d)
+// measure counts one unit, attributes the file's imports to it, and
+// locates every construct it charged.
+func (a *analyzer) measure(d *unitDecl, mods []module, src []byte) analyze.Unit {
+	c := newCounter(a.grammar, src, d)
 	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
+	c.countCoupling(mods)
 	return analyze.Unit{
 		Name:        d.name,
 		Kind:        d.kind,

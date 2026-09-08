@@ -27,6 +27,7 @@ const (
 // Count, metric by metric.
 type counter struct {
 	g      *grammar
+	src    []byte
 	counts map[config.MetricID]int
 	// occurrences locate every charge, in the order it was made. The walk
 	// is a pre-order traversal, so they come out in source order except for
@@ -35,6 +36,11 @@ type counter struct {
 	// consumed holds the logical binary expressions already folded into an
 	// enclosing clause chain, so a nested `&&` is never counted twice.
 	consumed map[uintptr]bool
+	// refs are the identifiers the unit mentions, used to attribute the
+	// file's imports to the units that actually reference them. Types are
+	// `user_type > identifier` in this grammar, so one node kind covers
+	// values, types and annotations.
+	refs map[string]struct{}
 	// skipDeclaration is a property unit's own declaration, which is not
 	// one of its local variables; skipLambda is the unit's own body, which
 	// is not one of its lambdas (FR-11).
@@ -43,11 +49,13 @@ type counter struct {
 }
 
 // newCounter returns a counter for the unit rooted at d.
-func newCounter(g *grammar, d *unitDecl) *counter {
+func newCounter(g *grammar, src []byte, d *unitDecl) *counter {
 	c := &counter{
 		g:        g,
+		src:      src,
 		counts:   zeroCounts(),
 		consumed: map[uintptr]bool{},
+		refs:     map[string]struct{}{},
 	}
 	if d.kind == unitProperty {
 		c.skipDeclaration = d.node.Id()
@@ -142,7 +150,7 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 }
 
 // countDeclaration charges the inheritance, local-variable and lambda
-// metrics.
+// metrics, and records the identifiers the unit mentions.
 //
 // A local variable is one property declaration wherever it sits -- a local
 // in a block, a member in a class body, a member of a companion -- so
@@ -178,6 +186,8 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 		if n.Id() != c.skipLambda {
 			c.charge(config.MetricLambda, n)
 		}
+	case kindIdentifier:
+		c.refs[n.Utf8Text(c.src)] = struct{}{}
 	}
 }
 
