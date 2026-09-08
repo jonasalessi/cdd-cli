@@ -5,6 +5,7 @@ import (
 
 	ts "github.com/tree-sitter/go-tree-sitter"
 
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
@@ -24,7 +25,7 @@ type module struct {
 	// which is where the module's coupling occurrence points. That
 	// statement sits outside every unit it is charged to, as the contract
 	// on analyze.Occurrence says.
-	at srcSpan
+	at treesitter.Span
 }
 
 // modules returns the modules imported by the file, in source order (FR-6).
@@ -39,7 +40,7 @@ type module struct {
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module {
 	var out []module
 	index := map[string]int{}
-	for _, child := range namedChildren(root) {
+	for _, child := range treesitter.NamedChildren(root) {
 		n := child
 		if g.kindOf(&n) != kindImportStatement {
 			continue
@@ -55,7 +56,7 @@ func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module 
 			out = append(out, module{
 				specifier: spec,
 				internal:  isInternal(spec, prefixes),
-				at:        spanOf(&n),
+				at:        treesitter.SpanOf(&n),
 			})
 		}
 		bindings, sideEffect := importBindings(g, &n, src)
@@ -70,9 +71,9 @@ func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module 
 // the string off the import_require_clause, so the clause is asked when the
 // statement has nothing.
 func specifier(g *grammar, n *ts.Node, src []byte) string {
-	raw := text(n.ChildByFieldId(g.fields.source), src)
+	raw := treesitter.Text(n.ChildByFieldId(g.fields.source), src)
 	if raw == "" {
-		raw = text(requireSource(g, n), src)
+		raw = treesitter.Text(requireSource(g, n), src)
 	}
 	if len(raw) < 2 {
 		return ""
@@ -83,7 +84,7 @@ func specifier(g *grammar, n *ts.Node, src []byte) string {
 // requireSource returns the source string of the statement's
 // import_require_clause, nil when the statement has no such clause.
 func requireSource(g *grammar, n *ts.Node) *ts.Node {
-	for _, child := range namedChildren(n) {
+	for _, child := range treesitter.NamedChildren(n) {
 		clause := child
 		if g.kindOf(&clause) == kindImportRequireClause {
 			return clause.ChildByFieldId(g.fields.source)
@@ -96,7 +97,7 @@ func requireSource(g *grammar, n *ts.Node) *ts.Node {
 // whether it is a side-effect import, which introduces none.
 func importBindings(g *grammar, n *ts.Node, src []byte) (names []string, sideEffect bool) {
 	hasClause := false
-	for _, child := range namedChildren(n) {
+	for _, child := range treesitter.NamedChildren(n) {
 		clause := child
 		switch g.kindOf(&clause) {
 		case kindImportClause:
@@ -116,10 +117,10 @@ func importBindings(g *grammar, n *ts.Node, src []byte) (names []string, sideEff
 // which the grammar hangs off the clause as a plain identifier child, the
 // quoted source being the clause's only other named child.
 func requireBinding(g *grammar, clause *ts.Node, src []byte) string {
-	for _, child := range namedChildren(clause) {
+	for _, child := range treesitter.NamedChildren(clause) {
 		id := child
 		if g.kindOf(&id) == kindIdentifier {
-			return text(&id, src)
+			return treesitter.Text(&id, src)
 		}
 	}
 	return ""
@@ -130,14 +131,14 @@ func requireBinding(g *grammar, clause *ts.Node, src []byte) string {
 // alias when it has one: `{ a as b }` introduces b.
 func clauseBindings(g *grammar, clause *ts.Node, src []byte) []string {
 	var names []string
-	for _, child := range namedChildren(clause) {
+	for _, child := range treesitter.NamedChildren(clause) {
 		n := child
 		switch g.kindOf(&n) {
 		case kindIdentifier:
-			names = append(names, text(&n, src))
+			names = append(names, treesitter.Text(&n, src))
 		case kindNamespaceImport:
-			if id := firstNamedChild(&n); id != nil {
-				names = append(names, text(id, src))
+			if id := treesitter.FirstNamedChild(&n); id != nil {
+				names = append(names, treesitter.Text(id, src))
 			}
 		case kindNamedImports:
 			names = append(names, specifierBindings(g, &n, src)...)
@@ -149,7 +150,7 @@ func clauseBindings(g *grammar, clause *ts.Node, src []byte) []string {
 // specifierBindings collects the local names of a `{ … }` import list.
 func specifierBindings(g *grammar, list *ts.Node, src []byte) []string {
 	var names []string
-	for _, child := range namedChildren(list) {
+	for _, child := range treesitter.NamedChildren(list) {
 		spec := child
 		if g.kindOf(&spec) != kindImportSpecifier {
 			continue
@@ -158,7 +159,7 @@ func specifierBindings(g *grammar, list *ts.Node, src []byte) []string {
 		if local == nil {
 			local = spec.ChildByFieldId(g.fields.name)
 		}
-		if name := text(local, src); name != "" {
+		if name := treesitter.Text(local, src); name != "" {
 			names = append(names, name)
 		}
 	}

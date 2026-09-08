@@ -2,6 +2,8 @@ package typescript
 
 import (
 	ts "github.com/tree-sitter/go-tree-sitter"
+
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
 
 // The Kind values a TypeScript unit can carry.
@@ -49,7 +51,7 @@ type unitDecl struct {
 // part of the position.
 func units(g *grammar, root *ts.Node, src []byte) []unitDecl {
 	var out []unitDecl
-	for _, child := range namedChildren(root) {
+	for _, child := range treesitter.NamedChildren(root) {
 		n := child
 		if g.kindOf(&n) == kindExportStatement {
 			out = append(out, exportedUnits(g, &n, src)...)
@@ -101,10 +103,10 @@ func declaredUnit(g *grammar, n *ts.Node, src []byte) (unitDecl, bool) {
 	default:
 		return unitDecl{}, false
 	}
-	line, col := position(n)
+	line, col := treesitter.Position(n)
 	return unitDecl{
 		node: *n,
-		name: text(n.ChildByFieldId(g.fields.name), src),
+		name: treesitter.Text(n.ChildByFieldId(g.fields.name), src),
 		kind: unit,
 		line: line,
 		col:  col,
@@ -116,7 +118,7 @@ func declaredUnit(g *grammar, n *ts.Node, src []byte) (unitDecl, bool) {
 // expression. A declarator holding anything else is a value, not a unit.
 func functionConstUnits(g *grammar, lexical *ts.Node, src []byte) []unitDecl {
 	var out []unitDecl
-	for _, child := range namedChildren(lexical) {
+	for _, child := range treesitter.NamedChildren(lexical) {
 		declarator := child
 		if g.kindOf(&declarator) != kindVariableDeclarator {
 			continue
@@ -125,11 +127,11 @@ func functionConstUnits(g *grammar, lexical *ts.Node, src []byte) []unitDecl {
 		if value == nil || !isFunctionValue(g, value) {
 			continue
 		}
-		line, col := position(&declarator)
+		line, col := treesitter.Position(&declarator)
 		out = append(out, unitDecl{
 			node: declarator,
 			body: value,
-			name: text(declarator.ChildByFieldId(g.fields.name), src),
+			name: treesitter.Text(declarator.ChildByFieldId(g.fields.name), src),
 			kind: unitFunction,
 			line: line,
 			col:  col,
@@ -150,7 +152,7 @@ func defaultUnit(g *grammar, value *ts.Node) []unitDecl {
 	default:
 		return nil
 	}
-	line, col := position(value)
+	line, col := treesitter.Position(value)
 	return []unitDecl{{node: *value, body: value, name: defaultName, kind: unit, line: line, col: col}}
 }
 
