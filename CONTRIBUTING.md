@@ -101,3 +101,31 @@ the repository knows the language exists: `config`, `detect`, `prompt` and
 The language list in the README (the `--languages` flag row) and the
 comments in `internal/config/templates/cdd.config.yaml.tmpl` are the only
 places kept by hand.
+
+### Writing an analyzer
+
+An analyzer implements `analyze.Analyzer` and is registered by setting
+`NewAnalyzer` on the same line in `languages.go`. The TypeScript and
+Kotlin analyzers are built on tree-sitter; the grammar-agnostic mechanics
+they share (the parse budget, the cursor walk, child accessors, source
+ranges, syntax-error reporting and the occurrence sort) live in
+`internal/analyze/internal/treesitter`. The node-kind table, the metric
+rules and the unit rules stay in the language package: copy the shape of
+`internal/analyze/kotlin/parser.go`, not its values.
+
+Every node kind, field and anonymous token an analyzer relies on is
+resolved by name once, when the shared grammar is built, and pinned by a
+test (`TestGrammarResolvesEveryKind` and friends), so a grammar bump that
+renames something fails loudly in `make test` instead of silently counting
+zero. Keep that test when you add a kind.
+
+### Grammar provenance
+
+The TypeScript grammar comes from the `tree-sitter/` GitHub organisation.
+The Kotlin grammar, `tree-sitter-grammars/tree-sitter-kotlin`, is the first
+one from outside it: `tree-sitter-grammars/` is the community collective
+that maintains the fork of `fwcd/tree-sitter-kotlin`, which is one release
+behind and less active. That is an accepted risk; the mitigation is the
+resolve-by-name test above. Both grammars are pinned in `go.mod`, and the
+`go-tree-sitter` binding is pinned to `v0.24.0` and must not be bumped
+without re-running every analyzer's tests.
