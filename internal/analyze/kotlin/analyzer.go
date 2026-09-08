@@ -66,7 +66,12 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 	if root.HasError() {
 		return analyze.FileResult{Warnings: []string{treesitter.SyntaxWarning(root)}}, nil
 	}
-	return analyze.FileResult{}, nil
+	decls := units(a.grammar, root, src)
+	out := make([]analyze.Unit, 0, len(decls))
+	for i := range decls {
+		out = append(out, a.measure(&decls[i]))
+	}
+	return analyze.FileResult{Units: out}, nil
 }
 
 // parse binds the grammar on first use and runs the parser over src within
@@ -81,4 +86,16 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 		}
 	}
 	return treesitter.Parse(ctx, a.parser, src)
+}
+
+// measure reports one unit with its metadata; the counters follow in the
+// metric tasks.
+func (a *analyzer) measure(d *unitDecl) analyze.Unit {
+	return analyze.Unit{
+		Name:   d.name,
+		Kind:   d.kind,
+		Line:   d.line,
+		Col:    d.col,
+		Counts: zeroCounts(),
+	}
 }

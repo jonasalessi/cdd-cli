@@ -193,6 +193,23 @@ func (g *grammar) kindOf(n *ts.Node) kind {
 	return g.byID[id]
 }
 
+// hasToken reports whether one of n's direct children is the anonymous
+// token with the given symbol id.
+func hasToken(n *ts.Node, token uint16) bool {
+	return findToken(n, token) != nil
+}
+
+// findToken returns the first direct child of n that is the anonymous token
+// with the given symbol id, nil when there is none.
+func findToken(n *ts.Node, token uint16) *ts.Node {
+	for i := uint(0); i < n.ChildCount(); i++ {
+		if child := n.Child(i); child != nil && !child.IsNamed() && child.KindId() == token {
+			return child
+		}
+	}
+	return nil
+}
+
 // sharedGrammar builds the parse table once for process-wide sharing. The
 // table is immutable after construction and lives in the C library.
 var sharedGrammar = sync.OnceValue(func() *grammar {

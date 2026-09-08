@@ -213,10 +213,15 @@ func TestEmptyAndHeaderOnlyFiles(t *testing.T) {
 }
 
 // TestBOMAndCRLF (TC-P13): a file written by Windows tooling parses, and
-// its lines are counted the same way an editor counts them.
+// its lines are counted the same way an editor counts them. The bytes are
+// built here rather than kept as a fixture so that git's line-ending
+// normalization cannot quietly undo the CRLFs.
 func TestBOMAndCRLF(t *testing.T) {
-	src := readFixture(t, "bom_crlf.kt")
-	require.Equal(t, []byte{0xEF, 0xBB, 0xBF}, src[:3], "the fixture must keep its BOM")
-	res := analyzeFixture(t, "bom_crlf.kt")
+	src := []byte(
+		"\xEF\xBB\xBFpackage a.b\r\n\r\nclass Bom {\r\n    fun f(x: Int) {\r\n        if (x > 0) {\r\n        }\r\n    }\r\n}\r\n",
+	)
+	a := newTestAnalyzer(t)
+	res, err := a.Analyze(context.Background(), "Bom.kt", src)
+	require.NoError(t, err)
 	require.Empty(t, res.Warnings)
 }
