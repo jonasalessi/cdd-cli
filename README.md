@@ -141,8 +141,8 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 
 | Metric id | Weight | Languages | Counts |
 | --- | --- | --- | --- |
-| `code_branch` | 1.0 | all | `if`/`else`, `switch`, ternary, loops, and `?.`/`??` in Kotlin and TypeScript |
-| `condition` | 1.0 | all | `&&`, `\|\|` and `??` clauses inside a branch |
+| `code_branch` | 1.0 | all | `if`/`else`, `switch`/`when`, ternary, loops, and `?.` in Kotlin and TypeScript |
+| `condition` | 1.0 | all | `&&`, `\|\|`, `??` (TypeScript) and `?:` (Kotlin) clauses inside a branch |
 | `exception_handling` | 1.0 | not Go | `try` / `catch` / `finally` blocks |
 | `internal_coupling` | 1.0 | all | References to types that belong to this project |
 | `external_coupling` | 0.5 | all | Framework, platform and third-party types |
