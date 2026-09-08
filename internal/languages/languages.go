@@ -21,7 +21,7 @@ func All() []analyze.Language {
 	return []analyze.Language{
 		{Spec: golang.Spec()},
 		{Spec: java.Spec()},
-		{Spec: kotlin.Spec()},
+		{Spec: kotlin.Spec(), NewAnalyzer: kotlin.NewAnalyzer},
 		{Spec: typescript.Spec(), NewAnalyzer: typescript.NewAnalyzer},
 	}
 }
