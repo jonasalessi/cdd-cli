@@ -1,0 +1,1 @@
+class Oops { void f( { }
