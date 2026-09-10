@@ -518,7 +518,7 @@ func TestCountsEqualTheirOccurrences(t *testing.T) {
 	fixtures := []string{
 		"cdd_examples.java", "branches.java", "conditions.java",
 		"exceptions.java", "inheritance.java", "locals.java",
-		"lambdas.java",
+		"lambdas.java", "coupling.java", "coupling_no_star.java",
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture, func(t *testing.T) {

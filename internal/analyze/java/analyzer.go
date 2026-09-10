@@ -9,6 +9,7 @@ import (
 	ts "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/jvm"
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
 
@@ -66,10 +67,11 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 	if root.HasError() {
 		return analyze.FileResult{Warnings: []string{treesitter.SyntaxWarning(root)}}, nil
 	}
+	mods := modules(a.grammar, root, src, a.prefixes)
 	decls := units(a.grammar, root, src)
 	out := make([]analyze.Unit, 0, len(decls))
 	for i := range decls {
-		out = append(out, a.measure(&decls[i], src))
+		out = append(out, a.measure(&decls[i], mods, src))
 	}
 	return analyze.FileResult{Units: out}, nil
 }
@@ -88,11 +90,12 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 	return treesitter.Parse(ctx, a.parser, src)
 }
 
-// measure counts one unit over its whole subtree and locates every construct
-// it charged (FR-4).
-func (a *analyzer) measure(d *unitDecl, src []byte) analyze.Unit {
+// measure counts one unit over its whole subtree, attributes the file's
+// imports to it, and locates every construct it charged (FR-4).
+func (a *analyzer) measure(d *unitDecl, mods []jvm.Module, src []byte) analyze.Unit {
 	c := newCounter(a.grammar, src)
 	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
+	c.countCoupling(mods)
 	return analyze.Unit{
 		Name:        d.name,
 		Kind:        d.kind,
