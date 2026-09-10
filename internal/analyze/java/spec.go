@@ -5,25 +5,31 @@ package java
 
 import (
 	"context"
+	"maps"
+	"slices"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/jvm"
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
-// extensions are the file extensions the analyzer reads.
-var extensions = []string{".java"}
+// extJava is the one extension the analyzer reads.
+const extJava = ".java"
 
-// Spec returns the Java language spec.
+// extensions is the roster the spec and the package detection share.
+var extensions = [...]string{extJava}
+
+// Spec returns the Java language spec. Every call returns fresh slices and a
+// fresh map, so a caller that edits them edits its own copy.
 func Spec() config.LanguageSpec {
 	return config.LanguageSpec{
 		ID:              "java",
 		DisplayName:     "Java",
-		Extensions:      extensions,
+		Extensions:      slices.Clone(extensions[:]),
 		DefaultExcludes: []string{"**/src/test/**", "**/build/**", "**/target/**"},
-		Descriptions: map[config.MetricID]string{
+		Descriptions: maps.Clone(map[config.MetricID]string{
 			config.MetricInternalCoupling: "references to project classes",
 			config.MetricExternalCoupling: "framework / JDK types",
-		},
+		}),
 		PackageExample: "com.acme.app",
 		LimitExamples:  []string{`# ".*/adapters/.*": 8`, `# ".*Dto\\.java": 20`},
 		DetectPackages: detectPackages,
@@ -33,5 +39,5 @@ func Spec() config.LanguageSpec {
 // detectPackages reduces the package declarations of the Java sources under
 // root to their shortest telling prefixes.
 func detectPackages(ctx context.Context, root string) ([]string, error) {
-	return jvm.Prefixes(ctx, root, extensions)
+	return jvm.Prefixes(ctx, root, extensions[:])
 }
