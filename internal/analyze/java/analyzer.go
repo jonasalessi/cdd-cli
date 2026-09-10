@@ -10,16 +10,17 @@ import (
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
-	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
 // analyzer counts the Java ICP constructs of one file at a time. It owns one
-// tree-sitter parser, which is not safe for concurrent use, so the pipeline
-// builds one analyzer per worker and closes it when the worker exits.
+// tree-sitter parser and one reusable cursor, neither of which is safe for
+// concurrent use, so the pipeline builds one analyzer per worker and closes
+// it when the worker exits.
 type analyzer struct {
 	prefixes []string
 	grammar  *grammar
 	parser   *ts.Parser
+	cursor   *ts.TreeCursor
 }
 
 // NewAnalyzer returns a Java analyzer. The returned value holds native
@@ -32,9 +33,14 @@ func NewAnalyzer(opts analyze.Options) analyze.Analyzer {
 	}
 }
 
-// Close releases the parser. The tree-sitter binding installs no finalizers,
-// so anything not closed leaks on the C heap. Close is idempotent.
+// Close releases the parser and cursor. The tree-sitter binding installs no
+// finalizers, so anything not closed leaks on the C heap. Close is
+// idempotent.
 func (a *analyzer) Close() error {
+	if a.cursor != nil {
+		a.cursor.Close()
+		a.cursor = nil
+	}
 	if a.parser != nil {
 		a.parser.Close()
 		a.parser = nil
@@ -63,7 +69,7 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 	decls := units(a.grammar, root, src)
 	out := make([]analyze.Unit, 0, len(decls))
 	for i := range decls {
-		out = append(out, a.measure(&decls[i]))
+		out = append(out, a.measure(&decls[i], src))
 	}
 	return analyze.FileResult{Units: out}, nil
 }
@@ -82,25 +88,27 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 	return treesitter.Parse(ctx, a.parser, src)
 }
 
-// measure reports one unit. The counters land with the rules that need
-// them, so every metric is still zero and no occurrence is located yet.
-func (a *analyzer) measure(d *unitDecl) analyze.Unit {
+// measure counts one unit over its whole subtree and locates every construct
+// it charged (FR-4).
+func (a *analyzer) measure(d *unitDecl, src []byte) analyze.Unit {
+	c := newCounter(a.grammar, src)
+	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
 	return analyze.Unit{
-		Name:   d.name,
-		Kind:   d.kind,
-		Line:   d.line,
-		Col:    d.col,
-		Counts: zeroCounts(),
+		Name:        d.name,
+		Kind:        d.kind,
+		Line:        d.line,
+		Col:         d.col,
+		Counts:      c.counts,
+		Occurrences: c.sortedOccurrences(),
 	}
 }
 
-// zeroCounts returns a map holding every metric at zero. A unit always
-// carries a key for every metric, enabled or not: the pipeline drops the
-// ones the configuration disables.
-func zeroCounts() map[config.MetricID]int {
-	counts := make(map[config.MetricID]int, len(config.Metrics()))
-	for _, m := range config.Metrics() {
-		counts[m] = 0
+// treeCursor returns the analyzer's cursor, creating it on first use. A
+// cursor is not bound to the tree it was created from: the walk resets it
+// onto whichever node it is given.
+func (a *analyzer) treeCursor(n *ts.Node) *ts.TreeCursor {
+	if a.cursor == nil {
+		a.cursor = n.Walk()
 	}
-	return counts
+	return a.cursor
 }

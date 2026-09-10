@@ -97,7 +97,7 @@ C-compiler prerequisite are unchanged.
 | Unit `Kind` labels | Distinct: `class`, `interface`, `enum`, `record`, `annotation`, `method`. The grammar already gives each its own node kind, so the label is read from the node, not from a keyword scan. | Everything type-shaped as `"class"` — the report would call a record a class, which is the first thing a Java reader distrusts. |
 | Visibility | No filter. Package-private and `final` top-level types are units. | Mirroring TypeScript's "exported only" rule. That rule is about module surface; a package-private class still carries complexity someone maintains. |
 | Shared code location | `internal/analyze/internal/jvm`, extended in a preparatory `refactor:` commit that leaves Kotlin byte-identical. | Copying the import logic into `internal/analyze/java` (two places to fix one classification bug); putting it in `treesitter` (that package is grammar- and metric-agnostic and must not import `config`). |
-| Switch arms | +1 per `switch_block_statement_group` (old style) and per `switch_rule` (arrow style) that carries at least one non-`default` label. `case 1: case 2: stmt` is one group and one point, matching Kotlin's `2, 3 ->` and TypeScript's one-point-per-`switch_case`. | +1 per `switch_label` — a multi-label arm is one decision the reader follows, not two. |
+| Switch arms | +1 per old-style arm and per `switch_rule` (arrow style) that tests at least one value rather than only `default`. `case 1: case 2: stmt` is one arm and one point, matching Kotlin's `2, 3 ->` and TypeScript's one-point-per-`switch_case`. The grammar spreads an old-style arm over several `switch_block_statement_group`s — see the fallthrough note below — so the rule reads the run, not a single node. | +1 per `switch_label` — a multi-label arm is one decision the reader follows, not two. |
 | `default` arm | 0. | +1 — the same reasoning that gives Kotlin's `else ->` and a plain `else` block zero when they carry no test of their own. Note the asymmetry with `if/else`, where the final `else` is +1: an `if` chain's `else` is the second half of a binary decision, a `default` is the fallthrough of an already-counted set. |
 | Ternary | `ternary_expression` +1, like a one-line `if`. | 0 — it is the same decision written shorter, and TypeScript already counts its conditional expression. |
 | `local_variable` per declarator | `int a, b;` is 2, on each `variable_declarator`. | 1 per declaration — TypeScript counts per declarator, and the doc calls it a "method-level temporary variable", singular per name. Kotlin has no multi-declarator form, so nothing diverges. |
@@ -124,7 +124,7 @@ C-compiler prerequisite are unchanged.
 | FR-7 | Import attribution: a named import binds one local name — the last segment of the path, which is the `name` field of the `scoped_identifier`. For `import static a.b.C.m` that name is `m`, so a static member import is attributed by the member. An import is charged to every unit whose subtree mentions that name, once per module however many mentions. A star import (`import a.b.*;`, `import static a.b.C.*;`, recognised by an `asterisk` child) binds no name and is charged to every unit of the file. Two imports of the same path are one module. The occurrence points at the `import_declaration` node. | `internal/analyze/java/imports.go` |
 | FR-8 | `condition` counts Boolean **clauses**, not operators: the leaf operands of a chain of `binary_expression` nodes whose `operator` is `&&` or `\|\|`, flattened through `parenthesized_expression` and unary `!` (the `operand` field) exactly as Kotlin `clauses()` does. `a && b` = 2, `a && b \|\| c` = 3, `!(a \|\| b) && x` = 3, `x > 1` = 0, `a & b \| 3` = 0. Nested chains are marked consumed so an inner `&&` is not counted twice. Java has no `??`, no `?:` elvis and no `&&=`. | `internal/analyze/java/metrics.go` |
 | FR-9 | `if / else if / else` is 3, not 4: an `if_statement` is +1; the node in its `alternative` field is +1 only when it is not itself an `if_statement`. The `else` occurrence spans from the anonymous `else` token to the end of the alternative, so a reader sees the branch and not the whole statement. | `internal/analyze/java/metrics.go` |
-| FR-10 | Switch arms: `switch_block_statement_group` and `switch_rule` are +1 each when at least one of their `switch_label` children is not the anonymous `default` token. `case 1: case 2: stmt` is one group and one point; `case 2, 3 ->` is one rule and one point; `default:` and `default ->` are 0. `switch_expression` covers both statement and expression forms, so there is one rule for both. | `internal/analyze/java/metrics.go` |
+| FR-10 | Switch arms: a `switch_rule` is +1 when its `switch_label` is not the anonymous `default` token. Old-style arms are +1 per **run** of `switch_block_statement_group`s, because the grammar gives every label its own group and hangs the statements off the last one: `case 1: case 2: stmt;` is a label-only group followed by a group holding `case 2` and the statements. A group with no statement of its own is therefore skipped, and a group with statements is +1 when it, or any label-only group immediately before it, carries a `switch_label` without the `default` token; the occurrence spans from the first label of the run to the end of that group. So `case 1: case 2: stmt` is 1, `case 1: default: stmt` is 1, `default: case 1: stmt` is 1, `default: stmt` and `default ->` are 0, and `case 2, 3 ->` is one rule and one point. `switch_expression` covers both statement and expression forms, so there is one rule for both. | `internal/analyze/java/metrics.go` |
 | FR-11 | Every node kind, field and anonymous token the analyzer uses is resolved by name once, when the shared grammar is built, and a test asserts each resolves to a non-zero id. `IdForNodeKind(name, false)` is used for the anonymous tokens (`else`, `default`). Two analyzers share one immutable grammar and never share a parser. | `internal/analyze/java/parser.go` |
 | FR-12 | `languages.go` gains `NewAnalyzer: java.NewAnalyzer`; the analyzer implements `io.Closer` and the pipeline closes it. No file outside `internal/analyze/java`, `internal/analyze/internal/jvm`, `internal/analyze/kotlin`, `languages.go`, `cmd/check_java_test.go` and the docs listed below changes. `make check-literals` stays green: the string `"java"`, the extension `".java"` and the description strings appear only in `spec.go`. | `internal/languages/languages.go` |
 
@@ -138,7 +138,7 @@ anonymous tokens, reachable through `IdForNodeKind(name, false)` or by scanning
 
 | MetricID | Counted nodes / rule |
 |---|---|
-| `code_branch` | `if_statement` +1; its `alternative` +1 unless that node is itself an `if_statement` (FR-9). `switch_block_statement_group` +1 and `switch_rule` +1 when at least one `switch_label` child is not `"default"` (FR-10). `ternary_expression` +1. `for_statement`, `enhanced_for_statement`, `while_statement`, `do_statement` +1 each. Nothing for `try_statement`, `return`, `break`, `continue`, `throw`, `yield`, `instanceof`, `assert` or labelled statements. |
+| `code_branch` | `if_statement` +1; its `alternative` +1 unless that node is itself an `if_statement` (FR-9). `switch_rule` +1 when its `switch_label` child is not `"default"`; +1 per run of `switch_block_statement_group`s ending in the group that carries the statements, when any label of that run is not `"default"` (FR-10). `ternary_expression` +1. `for_statement`, `enhanced_for_statement`, `while_statement`, `do_statement` +1 each. Nothing for `try_statement`, `return`, `break`, `continue`, `throw`, `yield`, `instanceof`, `assert` or labelled statements. |
 | `condition` | Leaf clauses of `binary_expression` chains whose `operator` is `"&&"` or `"\|\|"` (FR-8), flattened through `parenthesized_expression` and `unary_expression` with operator `"!"` via the `operand` field. Each clause is one occurrence on the operand node. Bitwise `"&"`, `"\|"`, `"^"` are 0. |
 | `exception_handling` | `try_statement` and `try_with_resources_statement` +1, on the node in their `body` field (the guarded block, not the whole statement, so the range does not swallow the catches). Each `catch_clause` +1 — a multi-catch `catch (A \| B e)` is one clause and one point. `finally_clause` +1. `try { } catch { } finally { }` = 3. `throws` and `throw` are 0. |
 | `internal_coupling` | +1 per import classified internal (FR-6) that the unit uses (FR-7). Occurrence on the `import_declaration` node. |
@@ -198,10 +198,10 @@ import java.util.List;
 class Branches {
     String oldSwitch(int x) {
         switch (x) {
-            case 1:                        // code_branch 1 — a group with one label
+            case 1:                        // code_branch 1 — an arm of one label
                 return "one";
-            case 2:                        // same group as case 3
-            case 3:                        // code_branch 1 — one group, two labels
+            case 2:                        // falls through into case 3
+            case 3:                        // code_branch 1 — one arm, two labels
                 return "few";
             default:                       // 0
                 return "many";
@@ -528,6 +528,13 @@ import java.util.Map;
   `switch (x) { … }` as an expression, so the arm rules need no second case.
   The old-style body is a `switch_block` of `switch_block_statement_group`s;
   the arrow body is a `switch_block` of `switch_rule`s.
+- Verified on v0.23.5: an old-style arm is **not** one group holding several
+  labels. `case 1: case 2: stmt;` parses as two groups, the first holding only
+  `switch_label case 1` and the second holding `switch_label case 2` plus the
+  statements. Count a run, not a node: skip a group with no statement of its
+  own, and charge a group with statements once when it or any label-only group
+  immediately before it tests a value. `PrevNamedSibling` has to step over the
+  `line_comment` a `// falls through` leaves between the labels.
 - Reference collection for FR-7 must gather both `identifier` and
   `type_identifier` text: this grammar splits value and type names, unlike
   Kotlin's single `identifier`. Same by-name test, same documented shadowing

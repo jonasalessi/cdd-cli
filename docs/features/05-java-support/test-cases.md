@@ -110,7 +110,7 @@ Fixtures: `cdd_examples.java`, `branches.java`, `conditions.java`.
 | TC-B2 | unit | `ifElse` in `cdd_examples.java`. | `code_branch` 2 — the doc's "if-else = 2". |
 | TC-B3 | unit | `chain` in `branches.java` (`if / else if / else if / else`). | `code_branch` 4, not 7. Occurrences: three on the `if` statements and one on the final `else` branch, whose range starts at the `else` token. |
 | TC-B4 | unit | `if (a) x(); else if (b) y();` with no trailing `else`. | `code_branch` 2. |
-| TC-B5 | unit | `oldSwitch` in `branches.java`. | `code_branch` 2: one occurrence on the `case 1:` group, one on the `case 2: case 3:` group, none on `default:`. |
+| TC-B5 | unit | `oldSwitch` in `branches.java`, plus `case 1: default: stmt`, `default: case 1: stmt` and `default: stmt` inline. | `code_branch` 2: one occurrence on the `case 1:` arm, one on the `case 2: case 3:` arm — spanning from `case 2` to the end of the statements, since the grammar gives each label its own group — and none on `default:`. Inline: 1, 1 and 0. |
 | TC-B6 | unit | `arrowSwitch` in `branches.java`. | `code_branch` 2: one on `case 1 ->`, one on `case 2, 3 ->`, none on `default ->`. |
 | TC-B7 | unit | A switch used as an expression assigned to a local, and one used as a statement, with the same arms. | Same `code_branch` either way — `switch_expression` covers both. |
 | TC-B8 | unit | A switch with only a `default` arm. | `code_branch` 0. |

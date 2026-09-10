@@ -67,7 +67,9 @@ func TestCompactSourceFile(t *testing.T) {
 	res := analyzeFixture(t, "compact.java")
 	require.Empty(t, res.Warnings)
 	require.Equal(t, []unitHead{{"main", unitMethod, 3, 1}}, heads(res))
-	requireCount(t, unitNamed(t, res, "main"), config.MetricLocalVariable, 0)
+	main := unitNamed(t, res, "main")
+	requireCount(t, main, config.MetricLocalVariable, 0)
+	requireCount(t, main, config.MetricCodeBranch, 1)
 }
 
 // TestVisibilityNeverFilters (TC-U6): every top-level visibility yields a
