@@ -103,8 +103,8 @@ func (c *counter) visit(n *ts.Node) bool {
 	return true
 }
 
-// countControlFlow charges the branch and condition metrics, reporting
-// whether k was one of theirs.
+// countControlFlow charges the branch, condition and exception metrics,
+// reporting whether k was one of theirs.
 //
 // An `if` is one branch and its `else` another, unless that `else` opens
 // another `if`, which charges itself (FR-9). A switch arm is one branch
@@ -113,6 +113,12 @@ func (c *counter) visit(n *ts.Node) bool {
 // branch: the reader still has to decide whether to go round again. `try`,
 // `return`, `break`, `continue`, `throw`, `yield`, `assert` and `instanceof`
 // are not branches.
+//
+// A guarded block is one point of handling, a `catch` another and a
+// `finally` a third, so the `try / catch / finally` of docs/cdd.md is 3.
+// A multi-catch is one clause and one point: the reader follows one
+// recovery path however many types lead into it. `throw` and a `throws`
+// clause are 0 -- they hand the problem on rather than handling it.
 func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	switch k {
 	case kindIfStatement:
@@ -124,24 +130,195 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 		if c.testsAValue(n) {
 			c.charge(config.MetricCodeBranch, n)
 		}
-	case kindTernaryExpression, kindForStatement, kindEnhancedForStatement,
-		kindWhileStatement, kindDoStatement:
+	case kindEnhancedForStatement:
+		c.charge(config.MetricCodeBranch, n)
+		c.countLoopBinding(n)
+	case kindTernaryExpression, kindForStatement, kindWhileStatement, kindDoStatement:
 		c.charge(config.MetricCodeBranch, n)
 	case kindBinaryExpression:
 		c.countCondition(n)
+	case kindTryStatement, kindTryWithResourcesStatement:
+		c.countTryBody(n)
+	case kindCatchClause, kindFinallyClause:
+		c.charge(config.MetricExceptionHandling, n)
 	default:
 		return false
 	}
 	return true
 }
 
-// countDeclaration records the names the unit mentions. The remaining
-// declaration metrics land with the rules that need them.
+// countDeclaration charges the inheritance and local-variable metrics, and
+// records the identifiers the unit mentions.
+//
+// Inheritance is charged per supertype, so `extends Base implements A, B`
+// is three occurrences a reader can tell apart, and it is charged wherever
+// the declaration sits: a nested type's heritage is the enclosing unit's,
+// like everything else nested in it.
+//
+// A local variable is one declarator, so `int a, b;` is two, and a field,
+// an interface constant and a block-local are the same declaration to a
+// reader following a name. A resource, a `for (T x : xs)` binding and a
+// record component each declare a name the body then reads, so they count
+// too. A parameter does not: it names a value the caller already had.
 func (c *counter) countDeclaration(k kind, n *ts.Node) {
 	switch k {
+	case kindSuperclass:
+		c.charge(config.MetricInheritance, nodeOr(treesitter.FirstNamedChild(n), n))
+	case kindSuperInterfaces, kindExtendsInterfaces:
+		c.countListedInterfaces(n)
+	case kindObjectCreationExpression:
+		c.countAnonymousClass(n)
+	case kindVariableDeclarator:
+		c.countDeclarator(n)
+	case kindResource:
+		c.countResource(n)
+	case kindFormalParameter:
+		c.countRecordComponent(n)
 	case kindIdentifier, kindTypeIdentifier:
 		c.refs[n.Utf8Text(c.src)] = struct{}{}
 	}
+}
+
+// countListedInterfaces charges one point per type an `implements` or an
+// interface's `extends` clause lists, each on its own type so that
+// `implements A, B` is two occurrences rather than one wide range. Only
+// these two clauses hold a type_list the analyzer charges: a `permits`
+// clause lists the same way but narrows who may extend the type instead of
+// making it depend on anything, and stays 0.
+func (c *counter) countListedInterfaces(n *ts.Node) {
+	list := c.typeList(n)
+	if list == nil {
+		return
+	}
+	for _, child := range treesitter.NamedChildren(list) {
+		listed := child
+		c.charge(config.MetricInheritance, &listed)
+	}
+}
+
+// typeList returns the type_list a heritage clause holds, nil when the
+// clause names none.
+func (c *counter) typeList(n *ts.Node) *ts.Node {
+	for _, child := range treesitter.NamedChildren(n) {
+		list := child
+		if c.g.kindOf(&list) == kindTypeList {
+			return &list
+		}
+	}
+	return nil
+}
+
+// countAnonymousClass charges the supertype an anonymous class implements or
+// extends -- an object creation that brings a class body of its own. It
+// implements that type as much as a named class does, and a reader must
+// follow the supertype to know what the body is for, so it is inheritance
+// and not a lambda. The occurrence points at the type, the one name in the
+// expression that says what was implemented.
+func (c *counter) countAnonymousClass(n *ts.Node) {
+	if !c.hasClassBody(n) {
+		return
+	}
+	c.charge(config.MetricInheritance, nodeOr(n.ChildByFieldId(c.g.fields.kindType), n))
+}
+
+// hasClassBody reports whether an object creation declares a body, which is
+// what makes it an anonymous class rather than a plain `new`.
+func (c *counter) hasClassBody(n *ts.Node) bool {
+	for _, child := range treesitter.NamedChildren(n) {
+		body := child
+		if c.g.kindOf(&body) == kindClassBody {
+			return true
+		}
+	}
+	return false
+}
+
+// countDeclarator charges one declared variable, on the declarator rather
+// than on the declaration, so `int a, b;` is two occurrences a reader can
+// tell apart. Every other declarator the grammar produces -- an annotation
+// element's default, for one -- declares no variable and is skipped.
+func (c *counter) countDeclarator(n *ts.Node) {
+	if c.declaresVariables(n.Parent()) {
+		c.charge(config.MetricLocalVariable, n)
+	}
+}
+
+// declaresVariables reports whether a declaration's declarators name
+// variables: a local, a field or an interface constant, which read the same
+// way to whoever follows the name.
+func (c *counter) declaresVariables(n *ts.Node) bool {
+	if n == nil {
+		return false
+	}
+	switch c.g.kindOf(n) {
+	case kindLocalVariableDeclaration, kindFieldDeclaration, kindConstantDeclaration:
+		return true
+	default:
+		return false
+	}
+}
+
+// countResource charges a try-with-resources resource that declares a name.
+// A resource that only names an already-declared variable, `try (existing)`,
+// declares nothing and is 0.
+func (c *counter) countResource(n *ts.Node) {
+	if n.ChildByFieldId(c.g.fields.name) != nil {
+		c.charge(config.MetricLocalVariable, n)
+	}
+}
+
+// countLoopBinding charges the binding of an enhanced `for` as one
+// method-level temporary variable, which is what docs/cdd.md counts and what
+// TypeScript charges for a `for…of` binding. The charge points at the
+// binding, the closest the grammar has to the declaration the loop never
+// gets.
+func (c *counter) countLoopBinding(n *ts.Node) {
+	if binding := n.ChildByFieldId(c.g.fields.name); binding != nil {
+		c.charge(config.MetricLocalVariable, binding)
+	}
+}
+
+// countRecordComponent charges a record's component, which is a field with a
+// shorter spelling: the record holds it and every method reads it by name,
+// exactly the case Kotlin already charges for a `val` constructor parameter.
+// Every other formal parameter -- of a method, a constructor or a lambda --
+// stays 0.
+func (c *counter) countRecordComponent(n *ts.Node) {
+	if c.isRecordComponent(n) {
+		c.charge(config.MetricLocalVariable, n)
+	}
+}
+
+// isRecordComponent reports whether a formal parameter is the component list
+// of a record rather than the parameters of something the record declares.
+func (c *counter) isRecordComponent(n *ts.Node) bool {
+	list := n.Parent()
+	if list == nil {
+		return false
+	}
+	owner := list.Parent()
+	if owner == nil || c.g.kindOf(owner) != kindRecordDeclaration {
+		return false
+	}
+	components := owner.ChildByFieldId(c.g.fields.parameters)
+	return components != nil && components.Id() == list.Id()
+}
+
+// countTryBody charges the block a `try` guards, plain or with resources.
+// The occurrence sits on that block rather than on the whole statement,
+// whose range would swallow the catch and finally clauses charged beside it.
+func (c *counter) countTryBody(n *ts.Node) {
+	c.charge(config.MetricExceptionHandling, nodeOr(n.ChildByFieldId(c.g.fields.body), n))
+}
+
+// nodeOr returns n when the grammar gave one and fallback otherwise, so a
+// charge always has a range to point at, even on a shape the grammar spells
+// without the field the rule reads.
+func nodeOr(n, fallback *ts.Node) *ts.Node {
+	if n == nil {
+		return fallback
+	}
+	return n
 }
 
 // countElse charges the `else` branch of an if_statement, unless that branch

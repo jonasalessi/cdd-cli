@@ -101,16 +101,22 @@ func TestNameIgnoresTypeParametersAndAnnotations(t *testing.T) {
 	}, heads(res))
 }
 
-// TestUnitsCarryEveryMetricAtZero: the counters land with the rules that
-// need them, so every unit is reported with a key for every metric and no
-// occurrence yet.
-func TestUnitsCarryEveryMetricAtZero(t *testing.T) {
+// TestUnitsCarryEveryMetric: every unit is reported with a key for every
+// metric, enabled or not. units.java declares nothing but shapes, so its
+// only charges are the record components — the one of `D`, and the one of
+// the record nested in `G`, which bills to the unit holding it (TC-U5).
+func TestUnitsCarryEveryMetric(t *testing.T) {
 	res := analyzeFixture(t, "units.java")
 	require.Len(t, res.Units, 7)
+
+	components := map[string]int{"D": 1, "G": 1}
 	for _, u := range res.Units {
-		require.Empty(t, u.Occurrences, u.Name)
 		for _, m := range config.Metrics() {
-			requireCount(t, u, m, 0)
+			want := 0
+			if m == config.MetricLocalVariable {
+				want = components[u.Name]
+			}
+			requireCount(t, u, m, want)
 		}
 	}
 }

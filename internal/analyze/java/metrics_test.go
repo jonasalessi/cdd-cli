@@ -1,6 +1,7 @@
 package java
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -16,20 +17,39 @@ func inMethod(body string) string {
 		body + "\n    }\n}\n"
 }
 
-// branchesOf returns the code_branch occurrences of a unit, in source order.
-func branchesOf(u analyze.Unit) []analyze.Occurrence {
+// occurrencesOf returns the occurrences a unit charges for one metric, in
+// source order.
+func occurrencesOf(u analyze.Unit, metric config.MetricID) []analyze.Occurrence {
 	out := make([]analyze.Occurrence, 0, len(u.Occurrences))
 	for _, o := range u.Occurrences {
-		if o.Metric == config.MetricCodeBranch {
+		if o.Metric == metric {
 			out = append(out, o)
 		}
 	}
 	return out
 }
 
+// branchesOf returns the code_branch occurrences of a unit, in source order.
+func branchesOf(u analyze.Unit) []analyze.Occurrence {
+	return occurrencesOf(u, config.MetricCodeBranch)
+}
+
+// occurrenceTexts returns the source each occurrence of a metric points at,
+// so a test can name what a charge landed on rather than spell coordinates.
+func occurrenceTexts(t *testing.T, src []byte, u analyze.Unit, metric config.MetricID) []string {
+	t.Helper()
+	lines := strings.Split(string(src), "\n")
+	out := make([]string, 0, len(u.Occurrences))
+	for _, o := range occurrencesOf(u, metric) {
+		require.Equal(t, o.Line, o.EndLine, "expected an occurrence within one line")
+		require.LessOrEqual(t, o.EndCol-1, len(lines[o.Line-1]))
+		out = append(out, lines[o.Line-1][o.Col-1:o.EndCol-1])
+	}
+	return out
+}
+
 // TestDocExamples pins the worked rules of docs/cdd.md section 2 against
-// cdd_examples.java (TC-B1, TC-B2). Exceptions land with T6, so the unit's
-// exception_handling is still zero here.
+// cdd_examples.java (TC-B1, TC-B2, TC-E1).
 func TestDocExamples(t *testing.T) {
 	res := analyzeFixture(t, "cdd_examples.java")
 	require.Empty(t, res.Warnings)
@@ -37,12 +57,13 @@ func TestDocExamples(t *testing.T) {
 	examples := unitNamed(t, res, "Examples")
 	requireCount(t, examples, config.MetricCodeBranch, 3)
 	requireCount(t, examples, config.MetricCondition, 2)
-	requireCount(t, examples, config.MetricExceptionHandling, 0)
+	requireCount(t, examples, config.MetricExceptionHandling, 3)
 	requireCount(t, examples, config.MetricLocalVariable, 0)
 }
 
 // TestBranchesFixture pins the code_branch total of branches.java (TC-B12).
-// The locals land with T6, so local_variable is still zero.
+// Its two loops declare a name each: the `int i` of the plain `for` and the
+// binding of the enhanced one.
 func TestBranchesFixture(t *testing.T) {
 	res := analyzeFixture(t, "branches.java")
 	require.Empty(t, res.Warnings)
@@ -50,7 +71,7 @@ func TestBranchesFixture(t *testing.T) {
 	branches := unitNamed(t, res, "Branches")
 	requireCount(t, branches, config.MetricCodeBranch, 13)
 	requireCount(t, branches, config.MetricCondition, 0)
-	requireCount(t, branches, config.MetricLocalVariable, 0)
+	requireCount(t, branches, config.MetricLocalVariable, 2)
 }
 
 // TestConditionsFixture pins the condition total of conditions.java
@@ -107,25 +128,26 @@ func TestSwitchArms(t *testing.T) {
 		name     string
 		body     string
 		branches int
+		locals   int
 	}{
-		{"one label", "switch (x) { case 1: g(); }", 1},
-		{"fallthrough", "switch (x) { case 1: case 2: g(); }", 1},
-		{"fallthrough with a comment", "switch (x) { case 1: /* falls */ case 2: g(); }", 1},
-		{"two arms", "switch (x) { case 1: g(); case 2: g(); }", 2},
-		{"default only", "switch (x) { default: g(); }", 0},
-		{"case then default", "switch (x) { case 1: default: g(); }", 1},
-		{"default then case", "switch (x) { default: case 1: g(); }", 1},
-		{"arm then default", "switch (x) { case 1: g(); default: g(); }", 1},
-		{"arrow", "switch (x) { case 1 -> g(); case 2, 3 -> g(); default -> g(); }", 2},
-		{"arrow as expression", "int y = switch (x) { case 1 -> 1; case 2, 3 -> 2; default -> 3; };", 2},
-		{"pattern arms", "switch (o) { case String s -> g(); case Integer i -> g(); default -> g(); }", 2},
+		{"one label", "switch (x) { case 1: g(); }", 1, 0},
+		{"fallthrough", "switch (x) { case 1: case 2: g(); }", 1, 0},
+		{"fallthrough with a comment", "switch (x) { case 1: /* falls */ case 2: g(); }", 1, 0},
+		{"two arms", "switch (x) { case 1: g(); case 2: g(); }", 2, 0},
+		{"default only", "switch (x) { default: g(); }", 0, 0},
+		{"case then default", "switch (x) { case 1: default: g(); }", 1, 0},
+		{"default then case", "switch (x) { default: case 1: g(); }", 1, 0},
+		{"arm then default", "switch (x) { case 1: g(); default: g(); }", 1, 0},
+		{"arrow", "switch (x) { case 1 -> g(); case 2, 3 -> g(); default -> g(); }", 2, 0},
+		{"arrow as expression", "int y = switch (x) { case 1 -> 1; case 2, 3 -> 2; default -> 3; };", 2, 1},
+		{"pattern arms", "switch (o) { case String s -> g(); case Integer i -> g(); default -> g(); }", 2, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			res := analyzeSource(t, inMethod("        "+c.body))
 			u := unitNamed(t, res, "Wrapper")
 			requireCount(t, u, config.MetricCodeBranch, c.branches)
-			requireCount(t, u, config.MetricLocalVariable, 0)
+			requireCount(t, u, config.MetricLocalVariable, c.locals)
 		})
 	}
 }
@@ -232,10 +254,190 @@ func TestNestedDeclarationsBillToTheUnit(t *testing.T) {
 	requireCount(t, unitNamed(t, res, "Outer"), config.MetricCodeBranch, 1)
 }
 
+// TestExceptionsFixture pins exceptions.java (TC-E4, TC-E5): a
+// try-with-resources is one point like a plain `try`, a multi-catch is one
+// clause, and only the resource that declares a name is a variable.
+func TestExceptionsFixture(t *testing.T) {
+	res := analyzeFixture(t, "exceptions.java")
+	require.Empty(t, res.Warnings)
+
+	exceptions := unitNamed(t, res, "Exceptions")
+	requireCount(t, exceptions, config.MetricExceptionHandling, 2)
+	requireCount(t, exceptions, config.MetricLocalVariable, 1)
+	requireCount(t, exceptions, config.MetricCodeBranch, 0)
+}
+
+// TestTryShapes pins one point per guarded block, per catch and per finally
+// (TC-E1, TC-E2, TC-E3, TC-E4, TC-E6). A multi-catch is one recovery path
+// however many types lead into it, and a `throw` hands the problem on
+// instead of handling it.
+func TestTryShapes(t *testing.T) {
+	cases := map[string]int{
+		"try { g(); } catch (Exception e) { } finally { }":  3,
+		"try { g(); } catch (Exception e) { }":              2,
+		"try { g(); } finally { }":                          2,
+		"try { g(); } catch (A e) { } catch (B e) { }":      3,
+		"try { g(); } catch (A | B e) { }":                  2,
+		"try (var in = open()) { } catch (Exception e) { }": 2,
+		"throw new IllegalStateException();":                0,
+		"try { try { g(); } finally { } } finally { }":      4,
+	}
+	for src, want := range cases {
+		t.Run(src, func(t *testing.T) {
+			res := analyzeSource(t, inMethod("        "+src))
+			requireCount(t, unitNamed(t, res, "Wrapper"), config.MetricExceptionHandling, want)
+		})
+	}
+}
+
+// TestThrowsClauseIsNotHandling pins TC-E6: declaring that a method throws
+// says who handles the failure, it does not handle it.
+func TestThrowsClauseIsNotHandling(t *testing.T) {
+	src := "class Wrapper {\n    void f() throws java.io.IOException {\n" +
+		"        throw new java.io.IOException();\n    }\n}\n"
+	res := analyzeSource(t, src)
+	requireCount(t, unitNamed(t, res, "Wrapper"), config.MetricExceptionHandling, 0)
+}
+
+// TestTryOccurrenceSitsOnTheGuardedBlock pins TC-E1: the try charge points
+// at the block it guards, so its range stops before the catch charged next
+// to it instead of swallowing the whole statement.
+func TestTryOccurrenceSitsOnTheGuardedBlock(t *testing.T) {
+	res := analyzeFixture(t, "cdd_examples.java")
+	got := occurrencesOf(unitNamed(t, res, "Examples"), config.MetricExceptionHandling)
+	require.Len(t, got, 3)
+	require.Equal(t, 12, got[0].Line, "the guarded block opens on the try line")
+	require.Equal(t, 13, got[0].Col, "at the brace, not at the `try` keyword")
+	require.Equal(t, 14, got[0].EndLine, "and ends where the catch begins")
+	require.Equal(t, 14, got[1].Line, "the catch clause")
+	require.Equal(t, 16, got[2].Line, "the finally clause")
+}
+
+// TestInheritanceFixture pins inheritance.java unit by unit (TC-E7 … TC-E12):
+// one point per supertype, wherever the heritage is written and whatever
+// declares it.
+func TestInheritanceFixture(t *testing.T) {
+	res := analyzeFixture(t, "inheritance.java")
+	require.Empty(t, res.Warnings)
+
+	ledger := unitNamed(t, res, "Ledger")
+	requireCount(t, ledger, config.MetricInheritance, 3)
+	require.Equal(t, []string{"Base", "Auditable", "Printer"},
+		occurrenceTexts(t, readFixture(t, "inheritance.java"), ledger, config.MetricInheritance))
+
+	requireCount(t, unitNamed(t, res, "Auditable"), config.MetricInheritance, 2)
+
+	level := unitNamed(t, res, "Level")
+	requireCount(t, level, config.MetricInheritance, 1)
+	requireCount(t, level, config.MetricLocalVariable, 0)
+
+	money := unitNamed(t, res, "Money")
+	requireCount(t, money, config.MetricInheritance, 1)
+	requireCount(t, money, config.MetricLocalVariable, 2)
+
+	requireCount(t, unitNamed(t, res, "Shape"), config.MetricInheritance, 0)
+}
+
+// TestAnonymousClassIsInheritance pins TC-E11: an anonymous class implements
+// its interface as much as a named class does, so it is one supertype and no
+// lambda, and the charge names the type a reader has to look up.
+func TestAnonymousClassIsInheritance(t *testing.T) {
+	res := analyzeFixture(t, "inheritance.java")
+
+	factory := unitNamed(t, res, "Factory")
+	requireCount(t, factory, config.MetricInheritance, 1)
+	requireCount(t, factory, config.MetricLocalVariable, 1)
+	requireCount(t, factory, config.MetricLambda, 0)
+	require.Equal(t, []string{"Runnable"},
+		occurrenceTexts(t, readFixture(t, "inheritance.java"), factory, config.MetricInheritance))
+}
+
+// TestInheritanceShapes pins what does and does not make an edge (TC-E13,
+// TC-E14, TC-E15).
+func TestInheritanceShapes(t *testing.T) {
+	cases := map[string]int{
+		"class Outer { }": 0,
+		"class Outer { class In extends Base { } }":                     1,
+		"class Outer { void f() { new Runnable() { }; } }":              1,
+		"class Outer { void f() { new Runnable() { }; new A() { }; } }": 2,
+		"class Outer { void f() { Object o = new Object(); } }":         0,
+		"class Outer implements A, B { }":                               2,
+	}
+	for src, want := range cases {
+		t.Run(src, func(t *testing.T) {
+			res := analyzeSource(t, src)
+			requireCount(t, unitNamed(t, res, "Outer"), config.MetricInheritance, want)
+		})
+	}
+}
+
+// TestLocalsFixture pins locals.java (TC-E16 … TC-E20): a declarator is one
+// variable wherever it is written, and an enum constant is not one.
+func TestLocalsFixture(t *testing.T) {
+	res := analyzeFixture(t, "locals.java")
+	require.Empty(t, res.Warnings)
+
+	locals := unitNamed(t, res, "Locals")
+	requireCount(t, locals, config.MetricLocalVariable, 6)
+	requireCount(t, locals, config.MetricCodeBranch, 1)
+	requireCount(t, locals, config.MetricExceptionHandling, 2)
+
+	requireCount(t, unitNamed(t, res, "Consts"), config.MetricLocalVariable, 1)
+	requireCount(t, unitNamed(t, res, "Color"), config.MetricLocalVariable, 0)
+}
+
+// TestLocalShapes pins what declares a variable and what only names one
+// (TC-E17, TC-E18, TC-E20, TC-E21, TC-E23). A pattern variable and a catch
+// parameter are the reading of a value the branch already charged for.
+func TestLocalShapes(t *testing.T) {
+	cases := map[string]int{
+		"class W { void f() { int x = 1, y = 2; } }":                      2,
+		"class W { void f() { var z = 1; } }":                             1,
+		"class W { void f(Object o) { if (o instanceof String s) { } } }": 0,
+		"class W { void f() { try { } catch (Exception e) { } } }":        0,
+		"class W { void f(int a, String... xs) { } }":                     0,
+		"class W { W(int a) { } }":                                        0,
+		"class W { Runnable r = () -> { }; void f() { g(x -> x); } }":     1,
+		"class W { class In { int f; } }":                                 1,
+		"class W { { int local = 1; } }":                                  1,
+		"enum W { A { void m() { int q = 1; } } }":                        1,
+	}
+	for src, want := range cases {
+		t.Run(src, func(t *testing.T) {
+			res := analyzeSource(t, src)
+			requireCount(t, unitNamed(t, res, "W"), config.MetricLocalVariable, want)
+		})
+	}
+}
+
+// TestRecordComponentsAreVariables pins TC-E10: a component is a field with
+// a shorter spelling, and a method's parameters next to it still are not.
+func TestRecordComponentsAreVariables(t *testing.T) {
+	src := "record R(int amount, String currency) {\n    int scaled(int factor) {\n" +
+		"        return amount * factor;\n    }\n}\n"
+	res := analyzeSource(t, src)
+	requireCount(t, unitNamed(t, res, "R"), config.MetricLocalVariable, 2)
+}
+
+// TestLoopBindingOccurrence pins TC-E22: the enhanced `for` charge points at
+// the name the loop declares, not at the whole statement.
+func TestLoopBindingOccurrence(t *testing.T) {
+	src := "class W { void f(java.util.List<String> xs) { for (String item : xs) { } } }\n"
+	res := analyzeSource(t, src)
+	w := unitNamed(t, res, "W")
+	requireCount(t, w, config.MetricLocalVariable, 1)
+	require.Equal(t, []string{"item"},
+		occurrenceTexts(t, []byte(src), w, config.MetricLocalVariable))
+}
+
 // TestCountsEqualTheirOccurrences pins the FR-4 invariant on the fixtures
 // this task counts: a count is the number of occurrences that produced it.
 func TestCountsEqualTheirOccurrences(t *testing.T) {
-	for _, fixture := range []string{"cdd_examples.java", "branches.java", "conditions.java"} {
+	fixtures := []string{
+		"cdd_examples.java", "branches.java", "conditions.java",
+		"exceptions.java", "inheritance.java", "locals.java",
+	}
+	for _, fixture := range fixtures {
 		t.Run(fixture, func(t *testing.T) {
 			for _, u := range analyzeFixture(t, fixture).Units {
 				charged := map[config.MetricID]int{}
