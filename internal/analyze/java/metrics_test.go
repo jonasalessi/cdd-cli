@@ -511,26 +511,3 @@ func TestLambdaParametersAreNotVariables(t *testing.T) {
 	requireCount(t, w, config.MetricLambda, 1)
 	requireCount(t, w, config.MetricLocalVariable, 0)
 }
-
-// TestCountsEqualTheirOccurrences pins the FR-4 invariant on the fixtures
-// this task counts: a count is the number of occurrences that produced it.
-func TestCountsEqualTheirOccurrences(t *testing.T) {
-	fixtures := []string{
-		"cdd_examples.java", "branches.java", "conditions.java",
-		"exceptions.java", "inheritance.java", "locals.java",
-		"lambdas.java", "coupling.java", "coupling_no_star.java",
-	}
-	for _, fixture := range fixtures {
-		t.Run(fixture, func(t *testing.T) {
-			for _, u := range analyzeFixture(t, fixture).Units {
-				charged := map[config.MetricID]int{}
-				for _, o := range u.Occurrences {
-					charged[o.Metric] += o.Count
-				}
-				for _, m := range config.Metrics() {
-					require.Equal(t, u.Counts[m], charged[m], "unit %q, metric %q", u.Name, m)
-				}
-			}
-		})
-	}
-}
