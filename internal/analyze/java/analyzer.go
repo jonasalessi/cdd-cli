@@ -10,6 +10,7 @@ import (
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
+	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
 // analyzer counts the Java ICP constructs of one file at a time. It owns one
@@ -59,7 +60,12 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 	if root.HasError() {
 		return analyze.FileResult{Warnings: []string{treesitter.SyntaxWarning(root)}}, nil
 	}
-	return analyze.FileResult{Units: a.measure(root, src)}, nil
+	decls := units(a.grammar, root, src)
+	out := make([]analyze.Unit, 0, len(decls))
+	for i := range decls {
+		out = append(out, a.measure(&decls[i]))
+	}
+	return analyze.FileResult{Units: out}, nil
 }
 
 // parse binds the grammar on first use and runs the parser over src within
@@ -76,9 +82,25 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 	return treesitter.Parse(ctx, a.parser, src)
 }
 
-// measure counts every unit of a parsed file. Unit extraction and the
-// counters land with the rules that need them, so a file that parses reports
-// nothing yet.
-func (a *analyzer) measure(_ *ts.Node, _ []byte) []analyze.Unit {
-	return nil
+// measure reports one unit. The counters land with the rules that need
+// them, so every metric is still zero and no occurrence is located yet.
+func (a *analyzer) measure(d *unitDecl) analyze.Unit {
+	return analyze.Unit{
+		Name:   d.name,
+		Kind:   d.kind,
+		Line:   d.line,
+		Col:    d.col,
+		Counts: zeroCounts(),
+	}
+}
+
+// zeroCounts returns a map holding every metric at zero. A unit always
+// carries a key for every metric, enabled or not: the pipeline drops the
+// ones the configuration disables.
+func zeroCounts() map[config.MetricID]int {
+	counts := make(map[config.MetricID]int, len(config.Metrics()))
+	for _, m := range config.Metrics() {
+		counts[m] = 0
+	}
+	return counts
 }
