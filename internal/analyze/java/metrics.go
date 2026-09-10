@@ -147,8 +147,8 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 	return true
 }
 
-// countDeclaration charges the inheritance and local-variable metrics, and
-// records the identifiers the unit mentions.
+// countDeclaration charges the inheritance, local-variable and lambda
+// metrics, and records the identifiers the unit mentions.
 //
 // Inheritance is charged per supertype, so `extends Base implements A, B`
 // is three occurrences a reader can tell apart, and it is charged wherever
@@ -160,6 +160,15 @@ func (c *counter) countControlFlow(k kind, n *ts.Node) bool {
 // reader following a name. A resource, a `for (T x : xs)` binding and a
 // record component each declare a name the body then reads, so they count
 // too. A parameter does not: it names a value the caller already had.
+//
+// A lambda is a lambda expression or a method reference, and the grammar
+// spells every form of the second one the same way, so `String::valueOf`,
+// `ArrayList::new`, `this::m` and `super::m` all count. An anonymous class
+// is inheritance instead: it names the type it implements, which a lambda
+// never does. Nothing is exempted from the count, because a Java unit is a
+// type or a method and never a property whose own body is a lambda, so
+// this counter needs neither of Kotlin's skipLambda and skipDeclaration
+// escapes.
 func (c *counter) countDeclaration(k kind, n *ts.Node) {
 	switch k {
 	case kindSuperclass:
@@ -174,6 +183,8 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 		c.countResource(n)
 	case kindFormalParameter:
 		c.countRecordComponent(n)
+	case kindLambdaExpression, kindMethodReference:
+		c.charge(config.MetricLambda, n)
 	case kindIdentifier, kindTypeIdentifier:
 		c.refs[n.Utf8Text(c.src)] = struct{}{}
 	}

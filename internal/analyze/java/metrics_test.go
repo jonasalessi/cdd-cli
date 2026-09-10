@@ -430,12 +430,95 @@ func TestLoopBindingOccurrence(t *testing.T) {
 		occurrenceTexts(t, []byte(src), w, config.MetricLocalVariable))
 }
 
+// TestLambdasFixture pins lambdas.java (TC-L1): a lambda expression and a
+// method reference are one function value each, and the name each one is
+// assigned to is still a variable.
+func TestLambdasFixture(t *testing.T) {
+	res := analyzeFixture(t, "lambdas.java")
+	require.Empty(t, res.Warnings)
+
+	lambdas := unitNamed(t, res, "Lambdas")
+	requireCount(t, lambdas, config.MetricLambda, 4)
+	requireCount(t, lambdas, config.MetricLocalVariable, 4)
+}
+
+// TestLambdaShapes pins the forms that are function values and the ones that
+// only look like them (TC-L2, TC-L3, TC-L4, TC-L7).
+func TestLambdaShapes(t *testing.T) {
+	cases := map[string]int{
+		"class W { void f() { g(x -> x * 2); } }":                               1,
+		"class W { void f() { g(x -> { h(x); }); } }":                           1,
+		"class W { void f() { g(() -> { }); } }":                                1,
+		"class W { void f() { xs.forEach(x -> ys.forEach(y -> use(x, y))); } }": 2,
+		"class W { void f() { g(String::valueOf); } }":                          1,
+		"class W { void f() { g(ArrayList::new); } }":                           1,
+		"class W { void f() { g(this::m); } }":                                  1,
+		"class W { void f() { g(super::toString); } }":                          1,
+		"class W { void f() { g(Map.Entry::getKey); } }":                        1,
+		"class W { void f() { g(Foo.class); h((Runnable) o); } }":               0,
+	}
+	for src, want := range cases {
+		t.Run(src, func(t *testing.T) {
+			res := analyzeSource(t, src)
+			requireCount(t, unitNamed(t, res, "W"), config.MetricLambda, want)
+		})
+	}
+}
+
+// TestLambdaBodyBillsToTheUnit pins TC-L4: a block body is one lambda, and
+// the branches written inside it belong to the unit that holds the lambda,
+// which is the only unit a Java file has to charge them to.
+func TestLambdaBodyBillsToTheUnit(t *testing.T) {
+	src := "class W { void f() { g(x -> { if (x > 0) { h(x); } }); } }\n"
+	res := analyzeSource(t, src)
+
+	w := unitNamed(t, res, "W")
+	requireCount(t, w, config.MetricLambda, 1)
+	requireCount(t, w, config.MetricCodeBranch, 1)
+}
+
+// TestAnonymousClassIsNoLambda pins TC-L5: an anonymous class names the type
+// it implements, which a lambda never does, so it is inheritance.
+func TestAnonymousClassIsNoLambda(t *testing.T) {
+	src := "class W { void f() { g(new Runnable() { public void run() { } }); } }\n"
+	res := analyzeSource(t, src)
+
+	w := unitNamed(t, res, "W")
+	requireCount(t, w, config.MetricLambda, 0)
+	requireCount(t, w, config.MetricInheritance, 1)
+}
+
+// TestLambdaOnAFieldIsCounted pins TC-L6: Java has no property unit, so a
+// lambda initializing a field is charged like any other, next to the
+// variable it is assigned to.
+func TestLambdaOnAFieldIsCounted(t *testing.T) {
+	src := "class W { Runnable r = () -> { }; }\n"
+	res := analyzeSource(t, src)
+
+	w := unitNamed(t, res, "W")
+	requireCount(t, w, config.MetricLambda, 1)
+	requireCount(t, w, config.MetricLocalVariable, 1)
+}
+
+// TestLambdaParametersAreNotVariables pins TC-E21 for lambdas: a parameter
+// names a value the caller already had, whether a method or a lambda
+// receives it.
+func TestLambdaParametersAreNotVariables(t *testing.T) {
+	src := "class W { void f() { g((a, b) -> a + b); } }\n"
+	res := analyzeSource(t, src)
+
+	w := unitNamed(t, res, "W")
+	requireCount(t, w, config.MetricLambda, 1)
+	requireCount(t, w, config.MetricLocalVariable, 0)
+}
+
 // TestCountsEqualTheirOccurrences pins the FR-4 invariant on the fixtures
 // this task counts: a count is the number of occurrences that produced it.
 func TestCountsEqualTheirOccurrences(t *testing.T) {
 	fixtures := []string{
 		"cdd_examples.java", "branches.java", "conditions.java",
 		"exceptions.java", "inheritance.java", "locals.java",
+		"lambdas.java",
 	}
 	for _, fixture := range fixtures {
 		t.Run(fixture, func(t *testing.T) {
