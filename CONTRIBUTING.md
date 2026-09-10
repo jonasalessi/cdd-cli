@@ -106,8 +106,8 @@ kept by hand; step 4 lists them.
    {Spec: rust.Spec()},
    ```
 
-   A language may ship with a spec and no analyzer, as `go` and `java` do
-   today: `cdd init` still configures it but warns that no analyzer exists
+   A language may ship with a spec and no analyzer, as `go` does today:
+   `cdd init` still configures it but warns that no analyzer exists
    yet, and `cdd check` reports it as an error rather than counting zero
    ICPs. Set `NewAnalyzer` on the same line once the analyzer exists;
    the next section describes how to write one.
@@ -124,12 +124,17 @@ kept by hand; step 4 lists them.
 ### Writing an analyzer
 
 An analyzer implements `analyze.Analyzer` and is registered by setting
-`NewAnalyzer` on the language's line in `languages.go`. The TypeScript and
-Kotlin analyzers are built on tree-sitter; the grammar-agnostic mechanics
-they share (the parse budget, the cursor walk, child accessors, source
-ranges, syntax-error reporting and the occurrence sort) live in
-`internal/analyze/internal/treesitter`. The node-kind table, the metric
-rules and the unit rules stay in the language package: copy the shape of
+`NewAnalyzer` on the language's line in `languages.go`. The TypeScript,
+Kotlin and Java analyzers are built on tree-sitter; the grammar-agnostic
+mechanics they share (the parse budget, the cursor walk, child accessors,
+source ranges, syntax-error reporting and the occurrence sort) live in
+`internal/analyze/internal/treesitter`. Rules that belong to a platform
+rather than to one language live beside them:
+`internal/analyze/internal/jvm` holds the package-prefix detection and the
+per-unit import attribution the Java and Kotlin analyzers share, while the
+grammar walk that reads a path, a binding and a star out of an import stays
+in each language package. The node-kind table, the metric rules and the
+unit rules stay there too: copy the shape of
 `internal/analyze/kotlin/parser.go`, not its values.
 
 Each language package builds its grammar once, at package level, and every
@@ -139,14 +144,15 @@ analyzer relies on is resolved by name at that point and pinned by a test
 something fails loudly in `make test` instead of silently counting zero.
 When you add a kind, add it to that test as well.
 
-Both grammars and the `go-tree-sitter` binding are pinned in `go.mod`. The
+Every grammar and the `go-tree-sitter` binding are pinned in `go.mod`. The
 binding is pinned to `v0.24.0` and must not be bumped without re-running
 every analyzer's tests.
 
 ### Grammar provenance
 
-The TypeScript grammar comes from the `tree-sitter/` GitHub organisation.
-The Kotlin grammar, `tree-sitter-grammars/tree-sitter-kotlin`, comes from
+The TypeScript grammar comes from the `tree-sitter/` GitHub organisation,
+and `tree-sitter/tree-sitter-java` comes from the same place, so both are
+maintained where the parser generator itself is. The Kotlin grammar, `tree-sitter-grammars/tree-sitter-kotlin`, comes from
 the community collective that maintains a fork of `fwcd/tree-sitter-kotlin`;
 the original `fwcd` grammar is one release behind and less active, which is
 why the fork was chosen. Depending on a grammar from outside `tree-sitter/`

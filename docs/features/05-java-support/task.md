@@ -640,14 +640,15 @@ the contract.
 
 ## Definition of done
 
-- [ ] `make build`
-- [ ] `make test` (race detector on)
-- [ ] `make lint` (including `check-literals`)
-- [ ] `make fmt` leaves no diff
-- [ ] Coverage ≥ 90 % for `internal/analyze/java` and
-      `internal/analyze/internal/jvm`; `internal/analyze/kotlin` and
-      `internal/analyze/typescript` coverage does not drop
-- [ ] Every worked fixture above is a checked-in test with the stated totals
+- [x] `make build`
+- [x] `make test` (race detector on)
+- [x] `make lint` (including `check-literals`)
+- [x] `make fmt` leaves no diff
+- [x] Coverage ≥ 90 % for `internal/analyze/java` (94.2 %) and
+      `internal/analyze/internal/jvm` (98.0 %); `internal/analyze/kotlin`
+      (95.1 %) and `internal/analyze/typescript` (96.2 %) coverage does not
+      drop
+- [x] Every worked fixture above is a checked-in test with the stated totals
 - [ ] Every case in [test-cases.md](test-cases.md) is a checked-in test, citing
       its id, and passes; cross-cutting invariants TC-X1 … TC-X6 run over every
       fixture under `testdata/`
