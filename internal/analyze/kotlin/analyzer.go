@@ -9,6 +9,7 @@ import (
 	ts "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/jvm"
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
 
@@ -91,7 +92,7 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 
 // measure counts one unit, attributes the file's imports to it, and
 // locates every construct it charged.
-func (a *analyzer) measure(d *unitDecl, mods []module, src []byte) analyze.Unit {
+func (a *analyzer) measure(d *unitDecl, mods []jvm.Module, src []byte) analyze.Unit {
 	c := newCounter(a.grammar, src, d)
 	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
 	c.countCoupling(mods)

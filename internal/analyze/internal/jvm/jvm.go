@@ -1,6 +1,8 @@
-// Package jvm holds the package-prefix detection Java and Kotlin share: both
-// declare packages the same way, so one walk over the sources of either
-// language reduces the declarations to the shortest telling prefixes.
+// Package jvm holds what the Java and Kotlin analyzers share because it is
+// about the JVM rather than about one language: the package-prefix detection
+// in this file, since both declare packages the same way, and the import
+// classification and per-unit attribution in imports.go, since both import
+// qualified paths. Grammar walking stays with each analyzer.
 package jvm
 
 import (

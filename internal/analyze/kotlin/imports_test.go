@@ -76,27 +76,9 @@ func TestCouplingOccurrencesPointAtTheImport(t *testing.T) {
 	}), invoice.Occurrences[:3])
 }
 
-// TestIsInternal (TC-C6) is the classification table, no parsing involved.
-func TestIsInternal(t *testing.T) {
-	cases := []struct {
-		path     string
-		prefixes []string
-		want     bool
-	}{
-		{"com.acme.shared.Money", []string{"com.acme"}, true},
-		{"com.acme.shared.Money", []string{"com.acme.shared"}, true},
-		{"com.acme.shared.Money", []string{"com.acmecorp"}, false},
-		{"com.acme.shared.Money", []string{"com.acme.shared.Money"}, true},
-		{"com.acme.shared.Money", []string{""}, false},
-		{"com.acme.shared.Money", nil, false},
-		{"java.util.List", []string{"com.acme"}, false},
-		{"com.acme", []string{"com.acme"}, true},
-		{"com.acmecorp.X", []string{"com.acme"}, false},
-	}
-	for _, c := range cases {
-		require.Equal(t, c.want, isInternal(c.path, c.prefixes), "%s with %v", c.path, c.prefixes)
-	}
-}
+// The classification table that used to sit here (TC-C6) moved to
+// internal/analyze/internal/jvm as TestIsInternal (TC-R1): it is a JVM rule,
+// not a Kotlin one, and no parsing is involved.
 
 // TestCouplingUses pins what counts as a use of an import (TC-C7 … TC-C13).
 func TestCouplingUses(t *testing.T) {
