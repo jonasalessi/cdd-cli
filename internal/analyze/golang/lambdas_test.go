@@ -97,6 +97,7 @@ func TestLambdasFixture(t *testing.T) {
 	lambdas := unitNamed(t, res, "Lambdas")
 	requireCount(t, lambdas, config.MetricLambda, 4)
 	requireCount(t, lambdas, config.MetricLocalVariable, 1)
+	requireCount(t, lambdas, config.MetricStdlibCoupling, 1)
 
 	value := unitNamed(t, res, "Value")
 	requireCount(t, value, config.MetricLambda, 0)

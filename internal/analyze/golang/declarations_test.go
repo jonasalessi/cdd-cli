@@ -190,7 +190,9 @@ func TestSignaturesDeclareNoLocals(t *testing.T) {
 
 // TestInheritanceFixture pins inheritance.go (TC-E1, TC-E5, TC-E6, TC-E7):
 // three embeddings in Ledger, two in ReadWriter, one in Stringish, and none
-// in the type set of Number or in the four types the others embed.
+// in the type set of Number or in the four types the others embed. An
+// embedded qualified type is both an edge and a use of the package it comes
+// from, so Ledger and Stringish carry a stdlib_coupling point as well.
 func TestInheritanceFixture(t *testing.T) {
 	res := analyzeFixture(t, "inheritance.go")
 	require.Empty(t, res.Warnings)
@@ -198,10 +200,14 @@ func TestInheritanceFixture(t *testing.T) {
 	ledger := unitNamed(t, res, "Ledger")
 	requireCount(t, ledger, config.MetricInheritance, 3)
 	requireCount(t, ledger, config.MetricLocalVariable, 1)
+	requireCount(t, ledger, config.MetricStdlibCoupling, 1)
 
 	requireCount(t, unitNamed(t, res, "ReadWriter"), config.MetricInheritance, 2)
 	requireCount(t, unitNamed(t, res, "Number"), config.MetricInheritance, 0)
-	requireCount(t, unitNamed(t, res, "Stringish"), config.MetricInheritance, 1)
+
+	stringish := unitNamed(t, res, "Stringish")
+	requireCount(t, stringish, config.MetricInheritance, 1)
+	requireCount(t, stringish, config.MetricStdlibCoupling, 1)
 
 	for _, name := range []string{"Base", "Printer", "Reader", "Writer"} {
 		unit := unitNamed(t, res, name)

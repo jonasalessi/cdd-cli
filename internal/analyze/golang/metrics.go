@@ -26,6 +26,10 @@ type counter struct {
 	// consumed holds the logical expressions already folded into an
 	// enclosing clause chain, so a nested `&&` is never counted twice.
 	consumed map[ast.Node]bool
+	// refs are the package names the unit qualifies something by, used to
+	// attribute the file's imports to the units that actually reference
+	// them (FR-8).
+	refs map[string]struct{}
 }
 
 // newCounter returns a counter for the subtrees of one unit.
@@ -34,6 +38,7 @@ func newCounter(fset *token.FileSet) *counter {
 		fset:     fset,
 		counts:   zeroCounts(),
 		consumed: map[ast.Node]bool{},
+		refs:     map[string]struct{}{},
 	}
 }
 
@@ -49,13 +54,15 @@ func zeroCounts() map[config.MetricID]int {
 }
 
 // measureUnit counts the ICPs of one unit over every subtree billed to it —
-// the type declaration plus its methods, or the function itself — and
-// reports the unit the pipeline consumes (FR-4).
-func measureUnit(fset *token.FileSet, d unitDecl) analyze.Unit {
+// the type declaration plus its methods, or the function itself — attributes
+// the file's imports to it, and reports the unit the pipeline consumes
+// (FR-4, FR-8).
+func measureUnit(fset *token.FileSet, d unitDecl, mods []module) analyze.Unit {
 	c := newCounter(fset)
 	for _, n := range d.nodes {
 		ast.Inspect(n, c.visit)
 	}
+	c.countCoupling(mods)
 	return analyze.Unit{
 		Name:        d.name,
 		Kind:        d.kind,
@@ -87,12 +94,18 @@ func (c *counter) chargeSpan(metric config.MetricID, s treesitter.Span) {
 	})
 }
 
-// span returns n's range the way analyze.Occurrence carries it. go/token
+// span returns n's range the way analyze.Occurrence carries it.
+func (c *counter) span(n ast.Node) treesitter.Span {
+	return spanOf(c.fset, n)
+}
+
+// spanOf returns n's range the way analyze.Occurrence carries it. go/token
 // positions are 1-based with byte columns and End is already exclusive, so
 // they are the contract treesitter.SpanOf produces and spans compare across
-// languages.
-func (c *counter) span(n ast.Node) treesitter.Span {
-	start, end := c.fset.Position(n.Pos()), c.fset.Position(n.End())
+// languages. The imports need it without a counter, which is why it stands
+// on its own.
+func spanOf(fset *token.FileSet, n ast.Node) treesitter.Span {
+	start, end := fset.Position(n.Pos()), fset.Position(n.End())
 	return treesitter.Span{
 		Line:    start.Line,
 		Col:     start.Column,
@@ -114,7 +127,27 @@ func (c *counter) sortedOccurrences() []analyze.Occurrence {
 func (c *counter) visit(n ast.Node) bool {
 	c.countControlFlow(n)
 	c.countDeclaration(n)
+	c.collectRef(n)
 	return true
+}
+
+// collectRef records the package name a qualified expression reads, which is
+// what attributes the file's imports to this unit (FR-8). The qualifier of
+// `fmt.Sprint` is a package only when the resolver left it unresolved: a
+// parameter, a local or a field named `fmt` carries an object, so it shadows
+// the package and the selector is not a use of it. That is the precise rule
+// Java cannot state and go/parser gives for free.
+//
+// It reads the deprecated Ident.Obj on purpose, for the reason declares
+// states: syntactic resolution is exactly what a per-file analyzer needs.
+func (c *counter) collectRef(n ast.Node) {
+	sel, ok := n.(*ast.SelectorExpr)
+	if !ok {
+		return
+	}
+	if qualifier, ok := sel.X.(*ast.Ident); ok && qualifier.Obj == nil {
+		c.refs[qualifier.Name] = struct{}{}
+	}
 }
 
 // countControlFlow charges the branch and condition metrics.
