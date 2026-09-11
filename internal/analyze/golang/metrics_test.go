@@ -82,6 +82,7 @@ func TestBranchesFixture(t *testing.T) {
 	branches := unitNamed(t, res, "Branches")
 	requireCount(t, branches, config.MetricCodeBranch, 14)
 	requireCount(t, branches, config.MetricCondition, 0)
+	requireCount(t, branches, config.MetricLocalVariable, 3)
 
 	noop := unitNamed(t, res, "noop")
 	requireCount(t, noop, config.MetricCodeBranch, 0)
@@ -268,11 +269,19 @@ func TestClauseOccurrencesSitOnTheLeaves(t *testing.T) {
 // TestCountsSumTheirOccurrences pins the invariant every unit carries: a raw
 // count is the number of places it was charged from.
 func TestCountsSumTheirOccurrences(t *testing.T) {
-	for _, name := range []string{"cdd_examples.go", "branches.go", "conditions.go"} {
+	metrics := []config.MetricID{
+		config.MetricCodeBranch,
+		config.MetricCondition,
+		config.MetricInheritance,
+		config.MetricLocalVariable,
+	}
+	fixtures := []string{"cdd_examples.go", "branches.go", "conditions.go", "inheritance.go", "locals.go"}
+	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {
 			for _, u := range analyzeFixture(t, name).Units {
-				requireCount(t, u, config.MetricCodeBranch, len(branchesOf(u)))
-				requireCount(t, u, config.MetricCondition, len(occurrencesOf(u, config.MetricCondition)))
+				for _, metric := range metrics {
+					requireCount(t, u, metric, len(occurrencesOf(u, metric)))
+				}
 			}
 		})
 	}

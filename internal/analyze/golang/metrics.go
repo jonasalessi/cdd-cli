@@ -109,8 +109,8 @@ func (c *counter) sortedOccurrences() []analyze.Occurrence {
 
 // visit is the ast.Inspect callback; it always descends, because a unit owns
 // every construct nested inside it, func literals and local types included.
-// The two halves of the walk are independent: a node is either a control
-// flow construct or a declaration, never both.
+// Both halves see every node, because one node can be both: a `range` loop is
+// a branch and declares the names it iterates with.
 func (c *counter) visit(n ast.Node) bool {
 	c.countControlFlow(n)
 	c.countDeclaration(n)
@@ -144,11 +144,123 @@ func (c *counter) countControlFlow(n ast.Node) {
 	}
 }
 
-// countDeclaration charges the metrics a declaration carries — embedding,
-// locals and func literals. Their rules land with the tasks that own them;
-// the seam is here so the walk is split by rule from the start and neither
-// half grows past what one reader can hold.
-func (c *counter) countDeclaration(_ ast.Node) {}
+// countDeclaration charges the metrics a declaration carries — embedding and
+// locals. A type switch marks its own guard consumed here: ast.Inspect visits
+// the statement before the `v := x.(type)` it holds, so the short declaration
+// rule never sees it and the guard stays 0, like a Java pattern variable.
+func (c *counter) countDeclaration(n ast.Node) {
+	switch n := n.(type) {
+	case *ast.StructType:
+		c.countFields(n)
+	case *ast.InterfaceType:
+		c.countInterfaceEmbedding(n)
+	case *ast.ValueSpec:
+		c.countNames(n.Names)
+	case *ast.TypeSwitchStmt:
+		c.consumed[n.Assign] = true
+	case *ast.AssignStmt:
+		c.countDefine(n)
+	case *ast.RangeStmt:
+		c.countRange(n)
+	}
+}
+
+// countFields charges the members of a struct type, the unit's own and every
+// anonymous one written inside its body. A field with no name embeds another
+// type, which is one inheritance point; a named field is one local_variable
+// per name, the per-declarator rule TypeScript and Java already follow.
+func (c *counter) countFields(n *ast.StructType) {
+	for _, field := range n.Fields.List {
+		if field.Names == nil {
+			c.charge(config.MetricInheritance, field.Type)
+			continue
+		}
+		c.countNames(field.Names)
+	}
+}
+
+// countInterfaceEmbedding charges one inheritance point per embedded
+// interface. An element with names is a method signature and costs nothing,
+// and a type term — `~string`, or a `A | B` union of them — is a constraint
+// on what may instantiate a parameter, not a supertype a reader must follow.
+func (c *counter) countInterfaceEmbedding(n *ast.InterfaceType) {
+	for _, element := range n.Methods.List {
+		if element.Names == nil && !isTypeTerm(element.Type) {
+			c.charge(config.MetricInheritance, element.Type)
+		}
+	}
+}
+
+// isTypeTerm reports whether an unnamed interface element is a type term
+// rather than an embedded interface: `~T` approximates a type and `A | B`
+// unions terms, while `Reader` and `fmt.Stringer` name interfaces.
+func isTypeTerm(n ast.Expr) bool {
+	switch e := n.(type) {
+	case *ast.BinaryExpr:
+		return e.Op == token.OR
+	case *ast.UnaryExpr:
+		return e.Op == token.TILDE
+	}
+	return false
+}
+
+// countNames charges one local_variable per declared name, which is how a
+// `var`, a `const` and a struct field are all counted: `var x, y = 1, 2` is
+// two variables to hold in mind, not one declaration. The blank identifier
+// names nothing a reader can read back and is 0.
+func (c *counter) countNames(names []*ast.Ident) {
+	for _, name := range names {
+		if !isBlank(name) {
+			c.charge(config.MetricLocalVariable, name)
+		}
+	}
+}
+
+// countDefine charges the names a short variable declaration introduces. A
+// `:=` may also assign to a name already in scope — the `z` of
+// `z, err := split(y)` — which the resolver marks by leaving the object's
+// Decl on the statement that first declared it, so only new names count.
+func (c *counter) countDefine(n *ast.AssignStmt) {
+	if n.Tok != token.DEFINE || c.consumed[n] {
+		return
+	}
+	for _, lhs := range n.Lhs {
+		if name, ok := lhs.(*ast.Ident); ok && declares(name, n) {
+			c.charge(config.MetricLocalVariable, name)
+		}
+	}
+}
+
+// declares reports whether stmt introduces name instead of assigning to a
+// name already in scope. It reads the deprecated Ident.Obj on purpose: the
+// syntactic resolution go/parser does is exactly what a per-file analyzer
+// needs, and the alternative is a type checker that would have to load the
+// whole package to answer the same question.
+func declares(name *ast.Ident, stmt ast.Stmt) bool {
+	return !isBlank(name) && name.Obj != nil && name.Obj.Decl == stmt
+}
+
+// countRange charges the names a `for … range` introduces. They are read off
+// the statement rather than through the short-declaration rule: the resolver
+// synthesizes the assignment, so a range binding carries no object pointing
+// back at the loop. `for i = range xs` assigns to a name that already exists
+// and is 0, and so is a blank binding.
+func (c *counter) countRange(n *ast.RangeStmt) {
+	if n.Tok != token.DEFINE {
+		return
+	}
+	for _, binding := range []ast.Expr{n.Key, n.Value} {
+		if name, ok := binding.(*ast.Ident); ok && !isBlank(name) {
+			c.charge(config.MetricLocalVariable, name)
+		}
+	}
+}
+
+// isBlank reports whether an identifier is the blank one, which declares no
+// name a reader can read back.
+func isBlank(n *ast.Ident) bool {
+	return n.Name == "_"
+}
 
 // countArm charges one arm of a switch, a type switch or a select when the
 // arm tests something. A `default` tests nothing and is 0: it is where every
