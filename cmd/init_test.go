@@ -6,7 +6,6 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -113,8 +112,7 @@ func TestInitYesDetectsGoProject(t *testing.T) {
 	stdout, stderr, code := runCdd(t, dir, "init", "--yes")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 	assert.Contains(t, stdout, "Created cdd.config.yaml")
-	assert.Contains(t, stderr, "warning: no analyzer for go yet")
-	assert.Equal(t, 1, strings.Count(stderr, "no analyzer for go yet"))
+	assert.NotContains(t, stderr, "no analyzer")
 
 	cfg := loadConfig(t, dir)
 	require.Len(t, cfg.Metrics, 1)
@@ -137,7 +135,7 @@ func TestInitWarnsOnceForUnavailableAnalyzer(t *testing.T) {
 			_, stderr, code := runCdd(t, dir, args...)
 
 			require.Equal(t, 0, code, "stderr: %s", stderr)
-			assert.Equal(t, 1, strings.Count(stderr, "warning: no analyzer for go yet"))
+			assert.NotContains(t, stderr, "no analyzer")
 			assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
 		})
 	}
@@ -340,7 +338,7 @@ func TestInitScanTimeoutTruncation(t *testing.T) {
 		_, stderr, code := runCdd(t, dir, "init", "--yes", "--scan-timeout", "0")
 		require.Equal(t, 0, code, "stderr: %s", stderr)
 		assert.NotContains(t, stderr, "scan stopped")
-		assert.Equal(t, 1, strings.Count(stderr, "warning: no analyzer for go yet"))
+		assert.NotContains(t, stderr, "no analyzer")
 		assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
 	})
 }

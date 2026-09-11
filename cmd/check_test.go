@@ -455,17 +455,6 @@ func TestCheckTimeoutReportsPartially(t *testing.T) {
 	assert.Contains(t, stderr, "timeout")
 }
 
-func TestCheckSelectedUnavailableLanguage(t *testing.T) {
-	dir := t.TempDir()
-	writeGoFixture(t, dir)
-	_, stderr, code := runCdd(t, dir, "init", "--yes", "--force", "--languages", "go")
-	require.Equal(t, 0, code, "stderr: %s", stderr)
-
-	_, stderr, code = runCdd(t, dir, "check")
-	assert.Equal(t, 1, code)
-	assert.Contains(t, stderr, "no analyzer for go yet")
-}
-
 func TestCheckMissingConfig(t *testing.T) {
 	_, stderr, code := runCdd(t, t.TempDir(), "check", "--config", "nowhere.yaml")
 	assert.Equal(t, 1, code)
