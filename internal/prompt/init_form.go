@@ -189,7 +189,7 @@ func metricsGroup(spec config.LanguageSpec, sel *[]config.MetricID) *huh.Group {
 func weightsConfirmGroup(customize *bool) *huh.Group {
 	return huh.NewGroup(huh.NewConfirm().
 		Title(sectionTitle("Customize weights?")).
-		Description("Defaults: 1.0, except external_coupling and local_variable at 0.5").
+		Description("Defaults: 1.0, except external_coupling, stdlib_coupling and local_variable at 0.5").
 		Value(customize))
 }
 

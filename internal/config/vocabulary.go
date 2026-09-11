@@ -22,6 +22,7 @@ const (
 	MetricExceptionHandling MetricID = "exception_handling"
 	MetricInternalCoupling  MetricID = "internal_coupling"
 	MetricExternalCoupling  MetricID = "external_coupling"
+	MetricStdlibCoupling    MetricID = "stdlib_coupling"
 	MetricInheritance       MetricID = "inheritance"
 	MetricLocalVariable     MetricID = "local_variable"
 	MetricLambda            MetricID = "lambda"
@@ -62,6 +63,7 @@ var metrics = []MetricID{
 	MetricExceptionHandling,
 	MetricInternalCoupling,
 	MetricExternalCoupling,
+	MetricStdlibCoupling,
 	MetricInheritance,
 	MetricLocalVariable,
 	MetricLambda,
@@ -69,6 +71,7 @@ var metrics = []MetricID{
 
 var defaultWeights = map[MetricID]float64{
 	MetricExternalCoupling: 0.5,
+	MetricStdlibCoupling:   0.5,
 	MetricLocalVariable:    0.5,
 }
 
@@ -101,7 +104,8 @@ var descriptions = map[MetricID]string{
 	MetricCondition:         "&& and || clauses",
 	MetricExceptionHandling: "try / catch / finally blocks",
 	MetricInternalCoupling:  "references to project packages",
-	MetricExternalCoupling:  "framework / stdlib types",
+	MetricExternalCoupling:  "framework / third-party types",
+	MetricStdlibCoupling:    "standard library types",
 	MetricInheritance:       "extends / implements, per level",
 	MetricLocalVariable:     "locals and fields",
 	MetricLambda:            "lambdas and method refs",
@@ -118,7 +122,8 @@ func IsMetric(m MetricID) bool {
 }
 
 // DefaultWeight returns the weight docs/cdd.md suggests for m: 0.5 for
-// external_coupling and local_variable, 1.0 for everything else.
+// external_coupling, stdlib_coupling and local_variable, 1.0 for everything
+// else.
 func DefaultWeight(m MetricID) float64 {
 	if w, ok := defaultWeights[m]; ok {
 		return w
@@ -126,8 +131,8 @@ func DefaultWeight(m MetricID) float64 {
 	return 1.0
 }
 
-// DefaultSelection returns the metrics enabled by default. local_variable
-// and lambda are opt-in.
+// DefaultSelection returns the metrics enabled by default. stdlib_coupling,
+// local_variable and lambda are opt-in.
 func DefaultSelection() []MetricID {
 	return append([]MetricID(nil), defaultSelection...)
 }

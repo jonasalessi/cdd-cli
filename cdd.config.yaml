@@ -31,7 +31,8 @@ project_type: greenfield
 #   condition          1.0  all         logical operators (&&, ||, ?? ts, ?: kotlin) in branch expressions
 #   exception_handling 1.0  not go      try / catch / finally blocks
 #   internal_coupling  1.0  all         references to types inside this project
-#   external_coupling  0.5  all         framework / platform / third-party types
+#   external_coupling  0.5  all         framework / third-party types
+#   stdlib_coupling    0.5  all         standard library types (optional, off by default)
 #   inheritance        1.0  not go      extends / implements, per level
 #   local_variable     0.5  all         locals and fields (optional, off by default)
 #   lambda             1.0  all         lambdas, method refs, func literals (optional, off by default)
@@ -46,7 +47,7 @@ metrics:
       code_branch: 1.0       # if/else, switch/select, for
       condition: 1.0         # && and || clauses
       internal_coupling: 1.0 # references to project packages
-      external_coupling: 0.5 # framework / stdlib types
+      external_coupling: 0.5 # framework / third-party types
     # ".*/dto/.*":
     #   internal_coupling: 0.5  # merged over the ".*" weights above
 
