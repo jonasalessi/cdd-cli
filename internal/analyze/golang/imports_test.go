@@ -1,6 +1,8 @@
 package golang
 
 import (
+	"go/ast"
+	"go/token"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -403,10 +405,23 @@ func TestAssumedName(t *testing.T) {
 		"example.com/app/money/v2":     "money",
 		"golang.org/x/sync/errgroup":   "errgroup",
 		"v2":                           "v2",
+		"example.com/caf\u00e9":        "caf\u00e9",
+		"example.com/caf\u00e9-go":     "caf\u00e9",
+		"example.com/\u4e16\u754c.v1":  "\u4e16\u754c",
 	}
 	for importPath, want := range cases {
 		t.Run(importPath, func(t *testing.T) {
 			require.Equal(t, want, assumedName(importPath))
 		})
 	}
+}
+
+// TestUnquotableImportPathNamesNoModule covers the guard the parser makes
+// unreachable: a spec whose path literal is not a valid Go string yields no
+// module instead of a panic.
+func TestUnquotableImportPathNamesNoModule(t *testing.T) {
+	file := &ast.File{Imports: []*ast.ImportSpec{
+		{Path: &ast.BasicLit{Kind: token.STRING, Value: "not quoted"}},
+	}}
+	require.Empty(t, modules(file, token.NewFileSet(), nil))
 }

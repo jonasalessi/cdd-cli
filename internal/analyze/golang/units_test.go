@@ -204,3 +204,11 @@ func totalCount(res analyze.FileResult, metric config.MetricID) int {
 	}
 	return total
 }
+
+// TestReceiverWithoutAnEntryNamesNoType covers the guard the parser makes
+// unreachable: a hand-built method whose receiver list is empty bills to no
+// type instead of indexing past the list.
+func TestReceiverWithoutAnEntryNamesNoType(t *testing.T) {
+	fn := &ast.FuncDecl{Recv: &ast.FieldList{}, Name: ast.NewIdent("M")}
+	require.Empty(t, receiverName(fn))
+}
