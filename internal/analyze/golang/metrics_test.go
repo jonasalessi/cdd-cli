@@ -274,8 +274,12 @@ func TestCountsSumTheirOccurrences(t *testing.T) {
 		config.MetricCondition,
 		config.MetricInheritance,
 		config.MetricLocalVariable,
+		config.MetricLambda,
 	}
-	fixtures := []string{"cdd_examples.go", "branches.go", "conditions.go", "inheritance.go", "locals.go"}
+	fixtures := []string{
+		"cdd_examples.go", "branches.go", "conditions.go",
+		"inheritance.go", "locals.go", "lambdas.go",
+	}
 	for _, name := range fixtures {
 		t.Run(name, func(t *testing.T) {
 			for _, u := range analyzeFixture(t, name).Units {

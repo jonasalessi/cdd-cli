@@ -144,10 +144,11 @@ func (c *counter) countControlFlow(n ast.Node) {
 	}
 }
 
-// countDeclaration charges the metrics a declaration carries — embedding and
-// locals. A type switch marks its own guard consumed here: ast.Inspect visits
-// the statement before the `v := x.(type)` it holds, so the short declaration
-// rule never sees it and the guard stays 0, like a Java pattern variable.
+// countDeclaration charges the metrics a declaration carries — embedding,
+// locals and func literals. A type switch marks its own guard consumed here:
+// ast.Inspect visits the statement before the `v := x.(type)` it holds, so the
+// short declaration rule never sees it and the guard stays 0, like a Java
+// pattern variable.
 func (c *counter) countDeclaration(n ast.Node) {
 	switch n := n.(type) {
 	case *ast.StructType:
@@ -162,7 +163,23 @@ func (c *counter) countDeclaration(n ast.Node) {
 		c.countDefine(n)
 	case *ast.RangeStmt:
 		c.countRange(n)
+	case *ast.FuncLit:
+		c.countFuncLit(n)
 	}
+}
+
+// countFuncLit charges one lambda per func literal, wherever it is written: a
+// literal a reader meets inside a body is another function to hold in mind.
+// The literal of `go func(){}()` and of `defer func(){}()` is charged like any
+// other, while the `go` and the `defer` themselves are not branches and cost
+// nothing of their own.
+//
+// A method value (`l.Wire`) or a method expression (`Lambdas.Wire`) is 0: with
+// no type information a selector that yields a function is indistinguishable
+// from a field access, and guessing from capitalisation or from the position
+// of the selector would be a heuristic, not a rule.
+func (c *counter) countFuncLit(n *ast.FuncLit) {
+	c.charge(config.MetricLambda, n)
 }
 
 // countFields charges the members of a struct type, the unit's own and every
