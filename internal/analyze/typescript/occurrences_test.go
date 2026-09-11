@@ -181,10 +181,16 @@ func TestOccurrenceRanges(t *testing.T) {
 			want: occurrenceAt{config.MetricInternalCoupling, 7, 1, 7, 31, 1},
 		},
 		{
-			name: "external coupling points at the import statement",
+			name: "stdlib coupling points at the import statement",
 			// `import { readFile } from "node:fs/promises";` on line 11.
 			fixture: "coupling.ts", unit: "usesExternal",
-			want: occurrenceAt{config.MetricExternalCoupling, 11, 1, 11, 45, 1},
+			want: occurrenceAt{config.MetricStdlibCoupling, 11, 1, 11, 45, 1},
+		},
+		{
+			name: "external coupling points at the import statement",
+			// `import * as lodash from "lodash/fp";` on line 12.
+			fixture: "coupling.ts", unit: "usesExternal",
+			want: occurrenceAt{config.MetricExternalCoupling, 12, 1, 12, 37, 1},
 		},
 		{
 			name: "a side-effect import is charged to a unit that names nothing",

@@ -35,6 +35,7 @@ func Spec() config.LanguageSpec {
 			config.MetricCondition:        "&&, || and ?? clauses",
 			config.MetricInternalCoupling: "references to project modules",
 			config.MetricExternalCoupling: "framework / node_modules types",
+			config.MetricStdlibCoupling:   "Node.js built-in modules (node:fs, path)",
 			config.MetricLambda:           "arrow functions and callbacks",
 		},
 		PackageExample: "@app/",

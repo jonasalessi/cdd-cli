@@ -8,6 +8,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
 func TestSpecID(t *testing.T) {
@@ -32,6 +34,15 @@ func TestSpecExtensionsAndDefaultExcludes(t *testing.T) {
 
 	spec.Extensions[0] = ".js"
 	assert.Equal(t, wantExtensions, Spec().Extensions, "callers cannot mutate the extension roster")
+}
+
+// TestSpecCouplingDescriptions pins the wording that tells a reader which
+// imports land in which coupling metric.
+func TestSpecCouplingDescriptions(t *testing.T) {
+	descriptions := Spec().Descriptions
+	assert.Equal(t, "references to project modules", descriptions[config.MetricInternalCoupling])
+	assert.Equal(t, "framework / node_modules types", descriptions[config.MetricExternalCoupling])
+	assert.Equal(t, "Node.js built-in modules (node:fs, path)", descriptions[config.MetricStdlibCoupling])
 }
 
 func TestDetectPackagesReadsTSConfigWithComments(t *testing.T) {

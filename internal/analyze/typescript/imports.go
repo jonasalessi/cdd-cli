@@ -16,8 +16,8 @@ type module struct {
 	// bindings are the local names the import introduces: the default
 	// name, the named imports under their alias, and the namespace name.
 	bindings []string
-	// internal says which coupling metric the module is charged to.
-	internal bool
+	// metric is the coupling metric the module is charged to.
+	metric config.MetricID
 	// sideEffect marks `import "x"`, which introduces no binding and is
 	// therefore charged to every unit of the file.
 	sideEffect bool
@@ -35,8 +35,7 @@ type module struct {
 // empty type-only clause introduces no dependency. Re-exports (`export … from
 // "x"`) and dynamic `import()` are not import statements and contribute
 // nothing. `import x = require("y")` is an import statement and is treated
-// exactly like a default import: one binding, classified internal or external
-// by the same rules.
+// exactly like a default import: one binding, classified by the same rules.
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module {
 	var out []module
 	index := map[string]int{}
@@ -55,7 +54,7 @@ func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []module 
 			index[spec] = at
 			out = append(out, module{
 				specifier: spec,
-				internal:  isInternal(spec, prefixes),
+				metric:    classify(spec, prefixes),
 				at:        treesitter.SpanOf(&n),
 			})
 		}
@@ -166,11 +165,26 @@ func specifierBindings(g *grammar, list *ts.Node, src []byte) []string {
 	return names
 }
 
-// isInternal classifies a module specifier. Relative and root-anchored
-// specifiers are always internal; a bare specifier is internal when it
-// equals one of the configured internal prefixes or is its slash-delimited
-// subpath ("@app/" matching "@app/users"); everything else, "node:fs" and
-// "lodash/fp" included, is external.
+// classify returns the coupling metric a module specifier is charged to. An
+// internal prefix wins over the Node.js built-ins, so a project that
+// configures "path" as one of its own packages keeps counting it as
+// internal.
+func classify(spec string, prefixes []string) config.MetricID {
+	switch {
+	case isInternal(spec, prefixes):
+		return config.MetricInternalCoupling
+	case isBuiltin(spec):
+		return config.MetricStdlibCoupling
+	default:
+		return config.MetricExternalCoupling
+	}
+}
+
+// isInternal reports whether a module specifier points inside the project.
+// Relative and root-anchored specifiers always do; a bare specifier does
+// when it equals one of the configured internal prefixes or is its
+// slash-delimited subpath ("@app/" matching "@app/users"); everything else,
+// "node:fs" and "lodash/fp" included, does not.
 func isInternal(spec string, prefixes []string) bool {
 	if isRelative(spec) {
 		return true
@@ -212,11 +226,7 @@ func (c *counter) countCoupling(mods []module) {
 		if !m.sideEffect && !c.uses(m.bindings) {
 			continue
 		}
-		if m.internal {
-			c.chargeSpan(config.MetricInternalCoupling, m.at, 1)
-			continue
-		}
-		c.chargeSpan(config.MetricExternalCoupling, m.at, 1)
+		c.chargeSpan(m.metric, m.at, 1)
 	}
 }
 
