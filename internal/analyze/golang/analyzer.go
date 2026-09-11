@@ -57,11 +57,22 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 	return analyze.FileResult{Units: a.measure(fset, file)}, nil
 }
 
-// measure turns the declarations of a parsed file into measured units. Unit
-// extraction, the metric counters and the import coupling land with the
-// tasks that follow, so a file that parses carries no unit yet.
-func (a *analyzer) measure(_ *token.FileSet, _ *ast.File) []analyze.Unit {
-	return nil
+// measure turns the declarations of a parsed file into measured units, each
+// carrying a key for every metric (FR-4). The metric counters and the import
+// coupling land with the tasks that follow, so every count is zero for now.
+func (a *analyzer) measure(fset *token.FileSet, file *ast.File) []analyze.Unit {
+	decls := units(fset, file)
+	out := make([]analyze.Unit, 0, len(decls))
+	for _, d := range decls {
+		out = append(out, analyze.Unit{
+			Name:   d.name,
+			Kind:   d.kind,
+			Line:   d.line,
+			Col:    d.col,
+			Counts: zeroCounts(),
+		})
+	}
+	return out
 }
 
 // syntaxWarning names the position of the first error go/parser reported,
