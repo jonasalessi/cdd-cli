@@ -15,8 +15,8 @@ type Module struct {
 	// Bindings are the local names the imports introduce: the last segment
 	// of the path, or the alias the language allows for it.
 	Bindings []string
-	// Internal says which coupling metric the module is charged to.
-	Internal bool
+	// Metric is the coupling metric the module is charged to.
+	Metric config.MetricID
 	// Star marks `import a.b.*`, which binds no name the analyzer can see
 	// and is therefore charged to every unit of the file, like a
 	// side-effect import in TypeScript.
@@ -49,21 +49,30 @@ func (m *Module) UsedBy(refs map[string]struct{}) bool {
 	return false
 }
 
-// Metric returns the coupling metric the module is charged to.
-func (m *Module) Metric() config.MetricID {
-	if m.Internal {
+// Classify returns the coupling metric a qualified path is charged to: a
+// project prefix wins, then the standard library, and everything else is
+// external. The precedence is what keeps `internal_coupling.packages`
+// meaning what it says, so a project that owns a prefix the platform also
+// uses still reads as internal. A nil stdlib predicate makes nothing
+// standard library, which is how a language that has not declared its
+// platform packages behaves.
+func Classify(path string, prefixes []string, stdlib func(string) bool) config.MetricID {
+	switch {
+	case IsInternal(path, prefixes):
 		return config.MetricInternalCoupling
+	case stdlib != nil && stdlib(path):
+		return config.MetricStdlibCoupling
+	default:
+		return config.MetricExternalCoupling
 	}
-	return config.MetricExternalCoupling
 }
 
-// IsInternal classifies a qualified path: it is internal when it equals one
-// of the configured prefixes or is its dot-delimited subpath ("com.acme"
-// matching "com.acme.shared.Money"); everything else, `java.*` and
-// `kotlinx.*` included, is external. An empty prefix matches nothing.
-// The JVM languages have no relative import, and the analyzer never guesses
-// from the file's own package: a same-package reference needs no import and
-// is invisible to it.
+// IsInternal reports whether a qualified path belongs to the project: it does
+// when it equals one of the configured prefixes or is its dot-delimited
+// subpath ("com.acme" matching "com.acme.shared.Money"). An empty prefix
+// matches nothing. The JVM languages have no relative import, and the
+// analyzer never guesses from the file's own package: a same-package
+// reference needs no import and is invisible to it.
 func IsInternal(path string, prefixes []string) bool {
 	for _, prefix := range prefixes {
 		if prefix != "" && (path == prefix || strings.HasPrefix(path, prefix+".")) {
@@ -82,11 +91,14 @@ type Imports struct {
 	modules  []Module
 	index    map[string]int
 	prefixes []string
+	stdlib   func(string) bool
 }
 
-// NewImports returns an empty collection classifying paths against prefixes.
-func NewImports(prefixes []string) *Imports {
-	return &Imports{index: map[string]int{}, prefixes: prefixes}
+// NewImports returns an empty collection classifying paths against the
+// project prefixes and the language's standard-library predicate, which may
+// be nil.
+func NewImports(prefixes []string, stdlib func(string) bool) *Imports {
+	return &Imports{index: map[string]int{}, prefixes: prefixes, stdlib: stdlib}
 }
 
 // Bind records a named import of path introducing binding, which an empty
@@ -117,9 +129,9 @@ func (s *Imports) module(path string, at treesitter.Span) *Module {
 	}
 	s.index[path] = len(s.modules)
 	s.modules = append(s.modules, Module{
-		Path:     path,
-		Internal: IsInternal(path, s.prefixes),
-		At:       at,
+		Path:   path,
+		Metric: Classify(path, s.prefixes, s.stdlib),
+		At:     at,
 	})
 	return &s.modules[len(s.modules)-1]
 }

@@ -11,7 +11,7 @@ import (
 // FR-7). The walk reads the path, the binding and the star out of the
 // grammar; jvm.Imports holds what they mean.
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []jvm.Module {
-	imports := jvm.NewImports(prefixes)
+	imports := jvm.NewImports(prefixes, nil)
 	for _, child := range treesitter.NamedChildren(root) {
 		n := child
 		if g.kindOf(&n) != kindImportDeclaration {
@@ -85,7 +85,7 @@ func (c *counter) countCoupling(mods []jvm.Module) {
 	for i := range mods {
 		m := &mods[i]
 		if m.UsedBy(c.refs) {
-			c.chargeSpan(m.Metric(), m.At)
+			c.chargeSpan(m.Metric, m.At)
 		}
 	}
 }
