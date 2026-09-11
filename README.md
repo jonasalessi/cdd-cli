@@ -31,9 +31,9 @@ somewhere between 20 and 40, and comes down as the code improves.
 go install github.com/jonasalessi/cdd-cli@latest
 ```
 
-That build needs Go 1.25 or newer and a C compiler. The TypeScript and
-Kotlin analyzers embed Tree-sitter through cgo, so you need `CGO_ENABLED=1`
-and a working toolchain:
+That build needs Go 1.25 or newer and a C compiler. The TypeScript, Kotlin
+and Java analyzers embed Tree-sitter through cgo, so you need
+`CGO_ENABLED=1` and a working toolchain:
 
 | Platform | Toolchain |
 | --- | --- |
@@ -43,7 +43,8 @@ and a working toolchain:
 
 The grammar parse tables are compiled into the binary, which makes it a few
 megabytes larger than a pure-Go build; the Kotlin table adds about 3.5 MB
-on top of the two TypeScript ones.
+on top of the two TypeScript ones, and the Java table about 0.5 MB on top
+of that.
 
 Or from a clone:
 
@@ -295,9 +296,9 @@ reports their violations and says they are not enforced.
 
 #### Language support
 
-TypeScript and Kotlin have analyzers. `init` still configures Go and Java,
-and `check` stops with `no analyzer for <language> yet` for them rather than
-reporting zero ICPs for files it cannot read.
+TypeScript, Kotlin and Java have analyzers. Go is the one language `init`
+still configures without one, and `check` stops with `no analyzer for go
+yet` rather than reporting zero ICPs for files it cannot read.
 
 Kotlin counts the same constructs TypeScript does, with the same limits, so
 a mixed project reads as one report. A unit is a top-level declaration:
@@ -328,6 +329,47 @@ Known limitations of the Kotlin analyzer:
   function named after a soft keyword (`open(x)`). Such a file gets a
   `syntax error` warning and no units; on a large ktlint-formatted codebase
   that is about one file in a hundred.
+
+Java counts the same constructs again, so a JVM project that mixes it with
+Kotlin reads as one report. A unit is a top-level type — a class,
+interface, enum, record or annotation type — or the top-level method of a
+compact source file, which has no type to bill to. Nested types, methods,
+constructors and initializers bill to the type around them, and there is no
+visibility filter, so a package-private class is a unit like any other.
+`if` and its `else` are branches, an `else if` charging itself rather than
+its parent; so is each `switch` arm that tests a value, each ternary and
+each loop, while `default` is free and an old-style arm whose labels share
+one statement list is one arm. `&&` and `||` count one per clause,
+flattened through parentheses and `!`. A `try` block, each `catch` and a
+`finally` are one each, and a multi-catch is one catch. Every `extends` and
+every `implements` type is one level of inheritance, and so is an anonymous
+class such as `new Runnable() { … }`; `permits` is not. Local variables
+count per declarator, so `int a, b;` is two, and fields, interface
+constants, declared `try` resources, the binding of a `for (T x : xs)` and
+record components count with them; parameters and pattern variables do not.
+Lambdas and method references are both lambdas, which is off by default. An
+import counts once per unit that mentions the name it binds — for a static
+import that name is the member — and a star import counts once per unit.
+Only `.java` files are read. The grammar comes from the same organisation
+as the TypeScript one and is current with the language: all 264 `.java`
+files of Apache Commons Lang parse without a syntax warning.
+
+Known limitations of the Java analyzer:
+
+- Same-package references need no import, and a fully-qualified reference
+  written inline (`java.time.Instant.now()`) has none, so neither adds
+  coupling. Listing the package in `internal_coupling.packages` does not
+  change that.
+- Bitwise `&` and `|` are not conditions. Their Boolean, non-short-circuit
+  meaning cannot be told from the arithmetic one without resolving types,
+  and counting `flags & MASK` as a clause would cost more credibility than
+  the missed Boolean forms are worth.
+- A compact source file's top-level statements are not a unit, so a field
+  declared outside every method is invisible, the way a top-level `val` is
+  in Kotlin.
+- A `switch` arm made of labels alone, with no statement after them at all,
+  is not counted: the arm is charged where its statements are, and such an
+  arm has none.
 
 ## Support
 

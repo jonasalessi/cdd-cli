@@ -20,7 +20,7 @@ import (
 func All() []analyze.Language {
 	return []analyze.Language{
 		{Spec: golang.Spec()},
-		{Spec: java.Spec()},
+		{Spec: java.Spec(), NewAnalyzer: java.NewAnalyzer},
 		{Spec: kotlin.Spec(), NewAnalyzer: kotlin.NewAnalyzer},
 		{Spec: typescript.Spec(), NewAnalyzer: typescript.NewAnalyzer},
 	}

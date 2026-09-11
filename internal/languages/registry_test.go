@@ -55,6 +55,23 @@ func TestEveryDirectoryIsRegistered(t *testing.T) {
 	}
 }
 
+// TestEveryAnalyzerIsWired is FR-12: a language directory that has an
+// analyzer.go must hand its constructor to the registry. A package that
+// grew an analyzer without the registry line fails here naming the
+// directory, instead of silently reporting "no analyzer yet".
+func TestEveryAnalyzerIsWired(t *testing.T) {
+	for _, l := range All() {
+		dir := filepath.Join(analyzeDir, dirName(l.Spec.ID))
+		_, err := os.Stat(filepath.Join(dir, "analyzer.go"))
+		if os.IsNotExist(err) {
+			assert.Nil(t, l.NewAnalyzer, "language %q has no analyzer.go but is wired", l.Spec.ID)
+			continue
+		}
+		require.NoError(t, err)
+		assert.NotNil(t, l.NewAnalyzer, "language %q has an analyzer.go but no NewAnalyzer", l.Spec.ID)
+	}
+}
+
 func TestAllReturnsAFreshSlice(t *testing.T) {
 	first := All()
 	first[0].Spec.ID = "mutated"

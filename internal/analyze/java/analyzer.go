@@ -1,4 +1,4 @@
-package kotlin
+package java
 
 import (
 	"context"
@@ -13,10 +13,10 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
 
-// analyzer counts the Kotlin ICP constructs of one file at a time. It owns
-// one tree-sitter parser and one reusable cursor, neither of which is safe
-// for concurrent use, so the pipeline builds one analyzer per worker and
-// closes it when the worker exits.
+// analyzer counts the Java ICP constructs of one file at a time. It owns one
+// tree-sitter parser and one reusable cursor, neither of which is safe for
+// concurrent use, so the pipeline builds one analyzer per worker and closes
+// it when the worker exits.
 type analyzer struct {
 	prefixes []string
 	grammar  *grammar
@@ -24,7 +24,7 @@ type analyzer struct {
 	cursor   *ts.TreeCursor
 }
 
-// NewAnalyzer returns a Kotlin analyzer. The returned value holds native
+// NewAnalyzer returns a Java analyzer. The returned value holds native
 // resources and implements io.Closer; the pipeline must close it.
 func NewAnalyzer(opts analyze.Options) analyze.Analyzer {
 	return &analyzer{
@@ -49,13 +49,13 @@ func (a *analyzer) Close() error {
 	return nil
 }
 
-// Analyze parses src and returns the raw counts of every unit it contains.
-// A file that does not parse yields no units and one warning naming the
-// position of the first syntax error (FR-6). Only `.kt` is accepted: any
+// Analyze parses src and returns the raw counts of every unit it contains. A
+// file that does not parse yields no units and one warning naming the
+// position of the first syntax error (FR-5). Only `.java` is accepted: any
 // other extension is an error, never a silent guess.
 func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.FileResult, error) {
-	if ext := path.Ext(p); !strings.EqualFold(ext, extKotlin) {
-		return analyze.FileResult{}, fmt.Errorf("%s: unsupported Kotlin extension %q", p, ext)
+	if ext := path.Ext(p); !strings.EqualFold(ext, extJava) {
+		return analyze.FileResult{}, fmt.Errorf("%s: unsupported Java extension %q", p, ext)
 	}
 	tree, err := a.parse(ctx, src)
 	if err != nil {
@@ -90,10 +90,10 @@ func (a *analyzer) parse(ctx context.Context, src []byte) (*ts.Tree, error) {
 	return treesitter.Parse(ctx, a.parser, src)
 }
 
-// measure counts one unit, attributes the file's imports to it, and
-// locates every construct it charged.
+// measure counts one unit over its whole subtree, attributes the file's
+// imports to it, and locates every construct it charged (FR-4).
 func (a *analyzer) measure(d *unitDecl, mods []jvm.Module, src []byte) analyze.Unit {
-	c := newCounter(a.grammar, src, d)
+	c := newCounter(a.grammar, src)
 	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
 	c.countCoupling(mods)
 	return analyze.Unit{
