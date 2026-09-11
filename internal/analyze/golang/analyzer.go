@@ -58,19 +58,13 @@ func (a *analyzer) Analyze(ctx context.Context, p string, src []byte) (analyze.F
 }
 
 // measure turns the declarations of a parsed file into measured units, each
-// carrying a key for every metric (FR-4). The metric counters and the import
-// coupling land with the tasks that follow, so every count is zero for now.
+// carrying a key for every metric (FR-4). The import coupling lands with the
+// task that owns it, so the coupling counts are zero for now.
 func (a *analyzer) measure(fset *token.FileSet, file *ast.File) []analyze.Unit {
 	decls := units(fset, file)
 	out := make([]analyze.Unit, 0, len(decls))
 	for _, d := range decls {
-		out = append(out, analyze.Unit{
-			Name:   d.name,
-			Kind:   d.kind,
-			Line:   d.line,
-			Col:    d.col,
-			Counts: zeroCounts(),
-		})
+		out = append(out, measureUnit(fset, d))
 	}
 	return out
 }
