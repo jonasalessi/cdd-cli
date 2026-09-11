@@ -31,8 +31,9 @@ somewhere between 20 and 40, and comes down as the code improves.
 go install github.com/jonasalessi/cdd-cli@latest
 ```
 
-That build needs a C compiler. The TypeScript analyzer embeds Tree-sitter
-through cgo, so you need `CGO_ENABLED=1` and a working toolchain:
+That build needs Go 1.25 or newer and a C compiler. The TypeScript and
+Kotlin analyzers embed Tree-sitter through cgo, so you need `CGO_ENABLED=1`
+and a working toolchain:
 
 | Platform | Toolchain |
 | --- | --- |
@@ -41,7 +42,8 @@ through cgo, so you need `CGO_ENABLED=1` and a working toolchain:
 | Windows | gcc, from MSYS2 or MinGW-w64 |
 
 The grammar parse tables are compiled into the binary, which makes it a few
-megabytes larger than a pure-Go build.
+megabytes larger than a pure-Go build; the Kotlin table adds about 3.5 MB
+on top of the two TypeScript ones.
 
 Or from a clone:
 
@@ -57,7 +59,7 @@ Every command reads `cdd.config.yaml` from the working directory. Pass
 
 ```sh
 cdd --help      # the command list
-cdd version     # version, commit and build date
+cdd version     # version, plus commit and date when the build has them
 cdd init        # Initialize the configuration
 cdd check       # Measure the project against the configuration
 ```
@@ -140,8 +142,8 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 
 | Metric id | Weight | Languages | Counts |
 | --- | --- | --- | --- |
-| `code_branch` | 1.0 | all | `if`/`else`, `switch`, ternary, loops, and `?.`/`??` in Kotlin and TypeScript |
-| `condition` | 1.0 | all | `&&`, `\|\|` and `??` clauses inside a branch |
+| `code_branch` | 1.0 | all | `if`/`else`, `switch`/`when`, ternary, loops, and `?.` in Kotlin and TypeScript |
+| `condition` | 1.0 | all | `&&`, `\|\|`, `??` (TypeScript) and `?:` (Kotlin) clauses inside a branch |
 | `exception_handling` | 1.0 | not Go | `try` / `catch` / `finally` blocks |
 | `internal_coupling` | 1.0 | all | References to types that belong to this project |
 | `external_coupling` | 0.5 | all | Framework, platform and third-party types |
@@ -293,9 +295,39 @@ reports their violations and says they are not enforced.
 
 #### Language support
 
-TypeScript is the only language with an analyzer today. `init` still configures
-Go, Java and Kotlin, and `check` stops with `no analyzer for <language> yet`
-rather than reporting zero ICPs for files it cannot read.
+TypeScript and Kotlin have analyzers. `init` still configures Go and Java,
+and `check` stops with `no analyzer for <language> yet` for them rather than
+reporting zero ICPs for files it cannot read.
+
+Kotlin counts the same constructs TypeScript does, with the same limits, so
+a mixed project reads as one report. A unit is a top-level declaration:
+a class, interface, enum, object, function or type alias, or a property
+whose value is code (a lambda, an anonymous function, an accessor with a
+body, or a delegate such as `by lazy`). Everything nested inside a
+declaration, companion objects and inner classes included, bills to it.
+`if` and each `when` arm with a condition are branches, and so is every
+`?.`; `&&`, `||` and `?:` count one per clause; a `try` block, a `catch`
+and a `finally` are one each; every `: Base()` or `: Iface` is one level of
+inheritance; an import counts once per unit that mentions the name it
+binds, and a star import counts once per unit. Only `.kt` files are read;
+`.kts` scripts are not.
+
+Known limitations of the Kotlin analyzer:
+
+- Same-package references need no import and are invisible to a per-file
+  analyzer, so they add no coupling. Listing the package in
+  `internal_coupling.packages` does not change that.
+- `Type::method` references (`String::trim`) parse as member accesses in
+  the grammar and are not counted as lambdas; a bare `::name` is.
+- Scope functions (`let`, `apply`, `run`, `also`, `with`) are lambdas like
+  any other. `lambda` is off by default; a team that turns it on can weigh
+  it.
+- The grammar rejects a few layouts that the Kotlin compiler accepts: a
+  class member on the same line as the opening brace (`class A { val x = 1 }`),
+  a statement starting with an identifier such as `in1`, and a call to a
+  function named after a soft keyword (`open(x)`). Such a file gets a
+  `syntax error` warning and no units; on a large ktlint-formatted codebase
+  that is about one file in a hundred.
 
 ## Support
 

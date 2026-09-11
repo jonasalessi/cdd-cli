@@ -3,22 +3,12 @@ package typescript
 import (
 	"context"
 	"fmt"
-	"strconv"
-	"time"
 
 	ts "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
-
-// parseBudget is how long a single file may take to parse when the caller
-// set no deadline. It bounds the damage a minified or generated file can do
-// without turning a slow machine into a failure.
-const parseBudget = 30 * time.Second
-
-// syntaxError opens the warning a file that does not parse produces; the
-// position of the first error follows it.
-const syntaxError = "syntax error"
 
 // analyzer counts the TypeScript ICP constructs of one file at a time. It
 // owns one tree-sitter parser and one reusable cursor, neither of which is
@@ -76,7 +66,7 @@ func (a *analyzer) Analyze(ctx context.Context, path string, src []byte) (analyz
 
 	root := tree.RootNode()
 	if root.HasError() {
-		return analyze.FileResult{Warnings: []string{syntaxWarning(root)}}, nil
+		return analyze.FileResult{Warnings: []string{treesitter.SyntaxWarning(root)}}, nil
 	}
 	mods := modules(g, root, src, a.prefixes)
 	decls := units(g, root, src)
@@ -87,8 +77,8 @@ func (a *analyzer) Analyze(ctx context.Context, path string, src []byte) (analyz
 	return analyze.FileResult{Units: out}, nil
 }
 
-// parse runs the parser over src, bounded by the caller's deadline when
-// there is one and by parseBudget when there is not.
+// parse sets the parser to g when the previous file used another grammar
+// and runs it over src within the shared parse budget.
 func (a *analyzer) parse(ctx context.Context, g *grammar, src []byte) (*ts.Tree, error) {
 	if a.parser == nil {
 		return nil, fmt.Errorf("analyzer is closed")
@@ -99,58 +89,14 @@ func (a *analyzer) parse(ctx context.Context, g *grammar, src []byte) (*ts.Tree,
 		}
 		a.current = g
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	// The parser is bounded by its own timeout rather than by the context:
-	// the binding's context-aware entry point dereferences a cancellation
-	// flag the caller never set. The timeout is derived from the deadline,
-	// so a run that is running out of time does not wait for a whole file.
-	a.parser.SetTimeoutMicros(timeoutMicros(budget(ctx)))
-	tree := a.parser.Parse(src, nil)
-	if tree == nil {
-		// The parser stopped halfway; reset it so the next file starts
-		// from the beginning instead of resuming this one.
-		a.parser.Reset()
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("parsing did not finish within %s", budget(ctx))
-	}
-	return tree, nil
-}
-
-// budget returns how long parsing may take: what is left of the caller's
-// deadline, or parseBudget when the caller set none.
-func budget(ctx context.Context) time.Duration {
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return parseBudget
-	}
-	switch left := time.Until(deadline); {
-	case left <= 0:
-		return time.Microsecond
-	case left < parseBudget:
-		return left
-	default:
-		return parseBudget
-	}
-}
-
-// timeoutMicros turns a parse budget into the unsigned microseconds the
-// parser expects, never below one.
-func timeoutMicros(d time.Duration) uint64 {
-	if micros := d.Microseconds(); micros > 1 {
-		return uint64(micros)
-	}
-	return 1
+	return treesitter.Parse(ctx, a.parser, src)
 }
 
 // measure counts one unit, attributes the file's imports to it, and locates
 // every construct it charged.
 func (a *analyzer) measure(g *grammar, d *unitDecl, mods []module, src []byte) analyze.Unit {
 	c := newCounter(g, src, d)
-	walk(a.treeCursor(&d.node), &d.node, c.visit)
+	treesitter.Walk(a.treeCursor(&d.node), &d.node, c.visit)
 	c.countCoupling(mods)
 	return analyze.Unit{
 		Name:        d.name,
@@ -170,15 +116,4 @@ func (a *analyzer) treeCursor(n *ts.Node) *ts.TreeCursor {
 		a.cursor = n.Walk()
 	}
 	return a.cursor
-}
-
-// syntaxWarning names the position of the first error or missing node,
-// 1-based. The path stays out of it: every caller already attaches the
-// warning to the file it came from.
-func syntaxWarning(root *ts.Node) string {
-	line, col := 1, 1
-	if n := firstErrorNode(root); n != nil {
-		line, col = position(n)
-	}
-	return syntaxError + " at " + strconv.Itoa(line) + ":" + strconv.Itoa(col)
 }

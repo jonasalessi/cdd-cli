@@ -4,13 +4,13 @@ import (
 	"context"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
 	ts "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
 
 // TestGrammarSelection is the parse spike (T1): the extension picks the
@@ -36,7 +36,7 @@ func TestGrammarSelection(t *testing.T) {
 			require.Len(t, res.Units, c.wantUnits)
 			if c.wantUnits == 0 {
 				require.Len(t, res.Warnings, 1)
-				require.Contains(t, res.Warnings[0], syntaxError)
+				require.Contains(t, res.Warnings[0], treesitter.SyntaxError)
 				return
 			}
 			require.Empty(t, res.Warnings)
@@ -49,7 +49,7 @@ func TestGrammarSelection(t *testing.T) {
 func TestSyntaxError(t *testing.T) {
 	res := analyzeFixture(t, "broken.ts")
 	require.Empty(t, res.Units)
-	require.Equal(t, []string{syntaxError + " at 2:3"}, res.Warnings)
+	require.Equal(t, []string{treesitter.SyntaxError + " at 2:3"}, res.Warnings)
 }
 
 // TestExtensions checks that the grammar table accepts every extension the
@@ -206,31 +206,4 @@ func TestCanceledContext(t *testing.T) {
 	cancel()
 	_, err := a.Analyze(ctx, "units.ts", readFixture(t, "units.ts"))
 	require.Error(t, err)
-}
-
-// TestBudget derives the parse timeout from the caller's deadline.
-func TestBudget(t *testing.T) {
-	require.Equal(t, parseBudget, budget(context.Background()))
-
-	short, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	left := budget(short)
-	require.Positive(t, left)
-	require.Less(t, left, parseBudget)
-
-	past, cancelPast := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
-	defer cancelPast()
-	require.Equal(t, time.Microsecond, budget(past))
-
-	long, cancelLong := context.WithTimeout(context.Background(), time.Hour)
-	defer cancelLong()
-	require.Equal(t, parseBudget, budget(long))
-}
-
-// TestTimeoutMicros never hands the parser a zero or negative timeout,
-// which would mean "no limit at all".
-func TestTimeoutMicros(t *testing.T) {
-	require.Equal(t, uint64(1), timeoutMicros(0))
-	require.Equal(t, uint64(1), timeoutMicros(-time.Second))
-	require.Equal(t, uint64(parseBudget.Microseconds()), timeoutMicros(parseBudget))
 }

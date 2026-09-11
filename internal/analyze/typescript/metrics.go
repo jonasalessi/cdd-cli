@@ -1,12 +1,10 @@
 package typescript
 
 import (
-	"cmp"
-	"slices"
-
 	ts "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze"
+	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
@@ -79,38 +77,27 @@ func zeroCounts() map[config.MetricID]int {
 // charge adds count points of metric to the unit and records n's range as
 // where they come from.
 func (c *counter) charge(metric config.MetricID, n *ts.Node, count int) {
-	c.chargeSpan(metric, spanOf(n), count)
+	c.chargeSpan(metric, treesitter.SpanOf(n), count)
 }
 
 // chargeSpan is charge for a range that is not a node the caller still
 // holds, which is how a coupling charge points at an import statement far
 // above the unit.
-func (c *counter) chargeSpan(metric config.MetricID, s srcSpan, count int) {
+func (c *counter) chargeSpan(metric config.MetricID, s treesitter.Span, count int) {
 	c.counts[metric] += count
 	c.occurrences = append(c.occurrences, analyze.Occurrence{
 		Metric:  metric,
-		Line:    s.line,
-		Col:     s.col,
-		EndLine: s.endLine,
-		EndCol:  s.endCol,
+		Line:    s.Line,
+		Col:     s.Col,
+		EndLine: s.EndLine,
+		EndCol:  s.EndCol,
 		Count:   count,
 	})
 }
 
-// sortedOccurrences returns the unit's occurrences in source order. The walk
-// yields the constructs inside the unit in that order already, but a leaf
-// clause is charged before the constructs of an earlier sibling it was
-// flattened out of, and the coupling charges point at import statements
-// above the unit, so the whole slice is ordered by position. The sort is
-// stable, so two constructs starting at the same place keep the order the
-// walk gave them: the `if` before the clauses of its own condition.
+// sortedOccurrences returns the unit's occurrences in source order.
 func (c *counter) sortedOccurrences() []analyze.Occurrence {
-	slices.SortStableFunc(c.occurrences, func(a, b analyze.Occurrence) int {
-		if a.Line != b.Line {
-			return cmp.Compare(a.Line, b.Line)
-		}
-		return cmp.Compare(a.Col, b.Col)
-	})
+	treesitter.SortOccurrences(c.occurrences)
 	return c.occurrences
 }
 
@@ -197,7 +184,7 @@ func (c *counter) countDeclaration(k kind, n *ts.Node) {
 // `extends Base<T>` holds Base in the clause's field and T outside it. An
 // empty field takes every named child, which is what `implements` holds.
 func (c *counter) chargeParents(n *ts.Node, field string) {
-	for _, parent := range namedChildrenInField(n, field) {
+	for _, parent := range treesitter.NamedChildrenInField(n, field) {
 		c.charge(config.MetricInheritance, &parent, 1)
 	}
 }
@@ -251,7 +238,7 @@ func (c *counter) countLoopBinding(n *ts.Node) {
 // countElse charges an `else`, unless it is the `else` of an `else if`:
 // that `if` already charged itself, so `if / else if / else` is 3 and not 4.
 func (c *counter) countElse(n *ts.Node) {
-	if body := firstNamedChild(n); body != nil && c.g.kindOf(body) == kindIfStatement {
+	if body := treesitter.FirstNamedChild(n); body != nil && c.g.kindOf(body) == kindIfStatement {
 		return
 	}
 	c.charge(config.MetricCodeBranch, n, 1)
@@ -288,7 +275,7 @@ func (c *counter) countCondition(k kind, n *ts.Node) {
 // only the operator says it is also a condition. So `y ||= b` is one
 // construct worth 2, which is the clause pair analyze.Occurrence describes.
 func (c *counter) countLogicalAssign(n *ts.Node) {
-	switch text(n.ChildByFieldId(c.g.fields.operator), c.src) {
+	switch treesitter.Text(n.ChildByFieldId(c.g.fields.operator), c.src) {
 	case opAndAssign, opOrAssign, opNullishAssign:
 		right := c.clauses(n.ChildByFieldId(c.g.fields.right), nil)
 		c.charge(config.MetricCondition, n, 1+len(right))
@@ -308,11 +295,11 @@ func (c *counter) clauses(n *ts.Node, out []ts.Node) []ts.Node {
 	}
 	switch c.g.kindOf(n) {
 	case kindParenthesizedExpression:
-		if inner := firstNamedChild(n); inner != nil {
+		if inner := treesitter.FirstNamedChild(n); inner != nil {
 			return c.clauses(inner, out)
 		}
 	case kindUnaryExpression:
-		if text(n.ChildByFieldId(c.g.fields.operator), c.src) == opNot {
+		if treesitter.Text(n.ChildByFieldId(c.g.fields.operator), c.src) == opNot {
 			return c.clauses(n.ChildByFieldId(c.g.fields.argument), out)
 		}
 	case kindBinaryExpression:
@@ -328,7 +315,7 @@ func (c *counter) clauses(n *ts.Node, out []ts.Node) []ts.Node {
 // isLogical reports whether n is a binary expression whose operator joins
 // Boolean clauses.
 func (c *counter) isLogical(n *ts.Node) bool {
-	switch text(n.ChildByFieldId(c.g.fields.operator), c.src) {
+	switch treesitter.Text(n.ChildByFieldId(c.g.fields.operator), c.src) {
 	case opAnd, opOr, opNullish:
 		return true
 	default:

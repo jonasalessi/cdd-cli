@@ -41,7 +41,8 @@ func betaSpec() LanguageSpec {
 		Extensions:      []string{".beta"},
 		DefaultExcludes: []string{"**/src/test/**", "**/build/**", "**/target/**"},
 		Descriptions: map[MetricID]string{
-			MetricCodeBranch:  "if/when, loops, safe calls (?.), elvis (?:)",
+			MetricCodeBranch:  "if/when, loops, safe calls (?.)",
+			MetricCondition:   "&&, || and ?: clauses",
 			MetricInheritance: ": Base() / : Iface, per level",
 			MetricLambda:      "lambdas and function refs",
 		},

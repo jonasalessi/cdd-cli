@@ -1,0 +1,147 @@
+package kotlin
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"github.com/jonasalessi/cdd-cli/internal/config"
+)
+
+// TestCoupling pins the worked coupling fixture: per-unit attribution by
+// binding, alias and star (TC-C1, TC-C2, TC-C3).
+func TestCoupling(t *testing.T) {
+	res := analyzeFixture(t, "coupling.kt", acmePrefix)
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit               string
+		internal, external int
+	}{
+		{"Invoice", 1, 2}, // Money; Instant and the star
+		{"Note", 1, 1},    // Ledger through its alias L; the star
+		{"Plain", 0, 1},   // the star charges every unit
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			u := unitNamed(t, res, c.unit)
+			requireCount(t, u, config.MetricInternalCoupling, c.internal)
+			requireCount(t, u, config.MetricExternalCoupling, c.external)
+		})
+	}
+	requireCount(t, unitNamed(t, res, "Invoice"), config.MetricLocalVariable, 1)
+	requireCount(t, unitNamed(t, res, "Note"), config.MetricLocalVariable, 1)
+}
+
+// TestCouplingWithoutTheStar (TC-C4): the same file minus the star import.
+func TestCouplingWithoutTheStar(t *testing.T) {
+	res := analyzeFixture(t, "coupling_no_star.kt", acmePrefix)
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit               string
+		internal, external int
+	}{
+		{"Invoice", 1, 1},
+		{"Note", 1, 0},
+		{"Plain", 0, 0},
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			u := unitNamed(t, res, c.unit)
+			requireCount(t, u, config.MetricInternalCoupling, c.internal)
+			requireCount(t, u, config.MetricExternalCoupling, c.external)
+		})
+	}
+}
+
+// TestCouplingOccurrencesPointAtTheImport (TC-C5): every coupling
+// occurrence sits on an import line, above the unit it is charged to.
+func TestCouplingOccurrencesPointAtTheImport(t *testing.T) {
+	res := analyzeFixture(t, "coupling.kt", acmePrefix)
+	imports := map[int]bool{3: true, 4: true, 5: true, 6: true}
+	for _, u := range res.Units {
+		for _, o := range u.Occurrences {
+			if o.Metric != config.MetricInternalCoupling && o.Metric != config.MetricExternalCoupling {
+				continue
+			}
+			require.True(t, imports[o.Line], "unit %q: %+v", u.Name, o)
+			require.Less(t, o.Line, u.Line)
+			require.Equal(t, 1, o.Col)
+		}
+	}
+	invoice := unitNamed(t, res, "Invoice")
+	require.Equal(t, occurrences([]occurrenceAt{
+		{config.MetricInternalCoupling, 3, 1, 3, 29, 1},
+		{config.MetricExternalCoupling, 5, 1, 5, 25, 1},
+		{config.MetricExternalCoupling, 6, 1, 6, 28, 1},
+	}), invoice.Occurrences[:3])
+}
+
+// TestIsInternal (TC-C6) is the classification table, no parsing involved.
+func TestIsInternal(t *testing.T) {
+	cases := []struct {
+		path     string
+		prefixes []string
+		want     bool
+	}{
+		{"com.acme.shared.Money", []string{"com.acme"}, true},
+		{"com.acme.shared.Money", []string{"com.acme.shared"}, true},
+		{"com.acme.shared.Money", []string{"com.acmecorp"}, false},
+		{"com.acme.shared.Money", []string{"com.acme.shared.Money"}, true},
+		{"com.acme.shared.Money", []string{""}, false},
+		{"com.acme.shared.Money", nil, false},
+		{"java.util.List", []string{"com.acme"}, false},
+		{"com.acme", []string{"com.acme"}, true},
+		{"com.acmecorp.X", []string{"com.acme"}, false},
+	}
+	for _, c := range cases {
+		require.Equal(t, c.want, isInternal(c.path, c.prefixes), "%s with %v", c.path, c.prefixes)
+	}
+}
+
+// TestCouplingUses pins what counts as a use of an import (TC-C7 … TC-C13).
+func TestCouplingUses(t *testing.T) {
+	res := analyzeFixture(t, "coupling_uses.kt", acmePrefix)
+	require.Empty(t, res.Warnings)
+	cases := []struct {
+		unit               string
+		internal, external int
+	}{
+		{"TypePosition", 1, 0}, // TC-C7, TC-C8: Money and its alias M are one module, used as a type
+		{"CallPosition", 1, 0}, // TC-C8: used in a call through the alias
+		{"Annotated", 0, 1},    // TC-C8: used as an annotation
+		{"Untouched", 0, 0},    // TC-C9
+		{"Shadowing", 1, 0},    // TC-C10: by name, the shadowing local counts as a use
+		{"SamePackage", 0, 0},  // TC-C12: no import, nothing to attribute
+		{"InString", 0, 0},     // TC-C13: strings and comments are not identifiers
+	}
+	for _, c := range cases {
+		t.Run(c.unit, func(t *testing.T) {
+			u := unitNamed(t, res, c.unit)
+			requireCount(t, u, config.MetricInternalCoupling, c.internal)
+			requireCount(t, u, config.MetricExternalCoupling, c.external)
+		})
+	}
+}
+
+// TestDuplicateImportsAreOneModule (TC-C7): `import a.B` twice is one
+// module, charged once.
+func TestDuplicateImportsAreOneModule(t *testing.T) {
+	res := analyzeSource(
+		t,
+		"import a.B\nimport a.B\nimport a.B as C\n\nclass U {\n    val b = B()\n    val c = C()\n}\n",
+		"a",
+	)
+	u := unitNamed(t, res, "U")
+	requireCount(t, u, config.MetricInternalCoupling, 1)
+	require.Len(t, u.Occurrences, 3, "one coupling and two locals")
+	require.Equal(t, 1, u.Occurrences[0].Line, "the module points at the first import naming it")
+}
+
+// TestNoPrefixesMeansEverythingIsExternal (TC-C11): the analyzer never
+// guesses from the file's own package.
+func TestNoPrefixesMeansEverythingIsExternal(t *testing.T) {
+	res := analyzeSource(t, "package com.acme.app\n\nimport com.acme.shared.Money\n\nclass U(val m: Money)\n")
+	u := unitNamed(t, res, "U")
+	requireCount(t, u, config.MetricInternalCoupling, 0)
+	requireCount(t, u, config.MetricExternalCoupling, 1)
+}
