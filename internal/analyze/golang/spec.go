@@ -15,18 +15,25 @@ import (
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
-// Spec returns the Go language spec. Go has no exceptions and no
-// inheritance, so those two metrics never apply.
+// extGo is the one extension the analyzer reads.
+const extGo = ".go"
+
+// Spec returns the Go language spec. Go has no exceptions, so that metric
+// never applies; embedding a struct or an interface is Go's inheritance, so
+// that one does. Every call returns fresh slices and a fresh map, so a caller
+// that edits them edits its own copy.
 func Spec() config.LanguageSpec {
 	return config.LanguageSpec{
 		ID:              "go",
 		DisplayName:     "Go",
-		Extensions:      []string{".go"},
-		NotApplicable:   []config.MetricID{config.MetricExceptionHandling, config.MetricInheritance},
+		Extensions:      []string{extGo},
+		NotApplicable:   []config.MetricID{config.MetricExceptionHandling},
 		DefaultExcludes: []string{"**/*_test.go", "vendor/**"},
 		Descriptions: map[config.MetricID]string{
-			config.MetricCodeBranch: "if/else, switch/select, for",
-			config.MetricLambda:     "func literals",
+			config.MetricCodeBranch:     "if/else, switch/select, for",
+			config.MetricStdlibCoupling: "standard library packages (fmt, net/http)",
+			config.MetricInheritance:    "embedded structs and interfaces",
+			config.MetricLambda:         "func literals",
 		},
 		PackageExample: "github.com/acme/api",
 		LimitExamples:  []string{`# ".*/adapters/.*": 8`},
