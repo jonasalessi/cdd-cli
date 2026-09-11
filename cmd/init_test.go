@@ -121,7 +121,7 @@ func TestInitYesDetectsGoProject(t *testing.T) {
 	assert.Equal(t, config.ProjectGreenfield, cfg.ProjectType)
 }
 
-func TestInitWarnsOnceForUnavailableAnalyzer(t *testing.T) {
+func TestInitNeverWarnsAboutTheGoAnalyzer(t *testing.T) {
 	tests := map[string][]string{
 		"automatically detected": nil,
 		"explicitly selected":    {"--languages", "go"},
