@@ -48,7 +48,7 @@ metrics:
       condition: 1.0          # && and || clauses
       exception_handling: 1.0 # try / catch / finally blocks
       internal_coupling: 1.0  # references to project classes
-      external_coupling: 0.5  # framework / JDK types
+      external_coupling: 0.5  # framework / third-party types
       inheritance: 1.0        # extends / implements, per level
     # ".*/dto/.*":
     #   internal_coupling: 0.5  # merged over the ".*" weights above

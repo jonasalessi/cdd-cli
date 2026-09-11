@@ -17,7 +17,8 @@ import (
 
 // checkMetrics is the metric set every fixture enables, so a fixture's ICPs
 // do not move when the default selection does.
-const checkMetrics = "code_branch,condition,exception_handling,internal_coupling,external_coupling,inheritance"
+const checkMetrics = "code_branch,condition,exception_handling," +
+	"internal_coupling,external_coupling,stdlib_coupling,inheritance"
 
 // violationLabel opens the console record of a unit above its limit, and
 // unitLabel the record of one within it.

@@ -9,9 +9,9 @@ import (
 
 // modules returns the modules imported by the file, in source order (FR-6,
 // FR-7). The walk reads the path, the binding and the star out of the
-// grammar; jvm.Imports holds what they mean.
+// grammar; jvm.Imports holds what they mean, the JDK packages included.
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []jvm.Module {
-	imports := jvm.NewImports(prefixes, nil)
+	imports := jvm.NewImports(prefixes, jvm.IsJDK)
 	for _, child := range treesitter.NamedChildren(root) {
 		n := child
 		if g.kindOf(&n) != kindImportDeclaration {

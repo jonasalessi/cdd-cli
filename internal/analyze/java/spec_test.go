@@ -27,7 +27,8 @@ func TestSpec(t *testing.T) {
 		DefaultExcludes: []string{"**/src/test/**", "**/build/**", "**/target/**"},
 		Descriptions: map[config.MetricID]string{
 			config.MetricInternalCoupling: "references to project classes",
-			config.MetricExternalCoupling: "framework / JDK types",
+			config.MetricExternalCoupling: "framework / third-party types",
+			config.MetricStdlibCoupling:   "JDK types (java.*, javax.*, jdk.*)",
 		},
 		PackageExample: "com.acme.app",
 		LimitExamples:  []string{`# ".*/adapters/.*": 8`, `# ".*Dto\\.java": 20`},
