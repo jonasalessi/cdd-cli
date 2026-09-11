@@ -137,6 +137,17 @@ in each language package. The node-kind table, the metric rules and the
 unit rules stay there too: copy the shape of
 `internal/analyze/kotlin/parser.go`, not its values.
 
+An analyzer also decides which of its imports are the standard library, and
+it does so with a predicate it hands to the classifier it shares:
+`jvm.NewImports(prefixes, stdlib)` for the JVM languages, its own `classify`
+for TypeScript. The list that predicate reads lives in the language package's
+`stdlib.go`, except for the JDK table Java and Kotlin share, which lives in
+`internal/analyze/internal/jvm/stdlib.go`. `internal/analyze/*/stdlib.go` is
+exempt from the literal check the way `spec.go` is, because module names such
+as Node's `console` collide with vocabulary ids. A configured project prefix
+always wins over the standard library, so a project that lists `java` or
+`path` among its own packages keeps counting it as internal coupling.
+
 Each language package builds its grammar once, at package level, and every
 analyzer instance shares it. Every node kind, field and anonymous token the
 analyzer relies on is resolved by name at that point and pinned by a test

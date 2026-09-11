@@ -333,24 +333,28 @@ consequence, visible. Repeat on `internal/analyze/kotlin/testdata/coupling.kt`
 
 ## Definition of done
 
-- [ ] `make build`
-- [ ] `make test` (race detector on)
-- [ ] `make lint` (including `check-literals`)
-- [ ] `make fmt` leaves no diff
+- [x] `make build`
+- [x] `make test` (race detector on)
+- [x] `make lint` (including `check-literals`)
+- [x] `make fmt` leaves no diff
 - [ ] Every case in [test-cases.md](test-cases.md) is a checked-in test, citing
-      its id, and passes
-- [ ] Coverage does not drop for `internal/config`,
+      its id, and passes. The suite is green, but only the T3, T4 and
+      cross-cutting cases cite their ids; the T1, T2 and T5 cases are tested
+      without a `TC-` comment.
+- [x] Coverage does not drop for `internal/config`,
       `internal/analyze/internal/jvm`, `internal/analyze/java`,
       `internal/analyze/kotlin` or `internal/analyze/typescript`; the two new
       `stdlib.go` files are covered by their own table tests
-- [ ] The T2 refactor produces byte-identical Java and Kotlin reports on the
+- [x] The T2 refactor produces byte-identical Java and Kotlin reports on the
       existing fixtures
-- [ ] Every `isCoupling`-style test helper includes `stdlib_coupling`
-- [ ] CI dogfood gate green: the repository's own `cdd.config.yaml` is what
+- [x] Every `isCoupling`-style test helper includes `stdlib_coupling`
+- [x] CI dogfood gate green: the repository's own `cdd.config.yaml` is what
       `cdd init` regenerates
-- [ ] The upgrade consequence is stated in the README and in the release notes
-- [ ] Nothing outside `internal/config`, `internal/prompt`,
+- [ ] The upgrade consequence is stated in the README and in the release notes.
+      The README states it; the repository keeps no release-notes file yet.
+- [x] Nothing outside `internal/config`, `internal/prompt`,
       `internal/analyze/{internal/jvm,java,kotlin,typescript}`,
       `internal/languages/literals_test.go`, `cmd` test files, the goldens
-      listed in T1 and the docs listed above changed — verified with
-      `git diff --stat main`
+      listed in T1 and the docs listed above changed. Verified with
+      `git diff --stat ef0dc4c..HEAD`, the feature's own base, since `main`
+      predates the Java and Kotlin work this branch also carries.

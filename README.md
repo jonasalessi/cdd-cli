@@ -147,14 +147,19 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 | `condition` | 1.0 | all | `&&`, `\|\|`, `??` (TypeScript) and `?:` (Kotlin) clauses inside a branch |
 | `exception_handling` | 1.0 | not Go | `try` / `catch` / `finally` blocks |
 | `internal_coupling` | 1.0 | all | References to types that belong to this project |
-| `external_coupling` | 0.5 | all | Framework, platform and third-party types |
+| `external_coupling` | 0.5 | all | Framework and third-party types |
+| `stdlib_coupling` | 0.5 | all | Standard library types: JDK packages in Java and Kotlin, `kotlin.*` in Kotlin, Node.js built-in modules in TypeScript. Off by default |
 | `inheritance` | 1.0 | not Go | `extends` / `implements`, counted per level |
 | `local_variable` | 0.5 | all | Locals and fields. Off by default |
 | `lambda` | 1.0 | all | Lambdas, method references, func literals. Off by default |
 
-The first six are ticked by default. Weights are per language and per file
-pattern, so a DTO package can count coupling at half the weight of everything
-else without a second file.
+Every metric except `stdlib_coupling`, `local_variable` and `lambda` is ticked
+by default. A configuration that leaves `stdlib_coupling` out counts
+standard-library imports as nothing at all, so a project configured before the
+metric existed reads lower than it used to; adding `stdlib_coupling: 0.5` next
+to `external_coupling` in each language brings the old totals back. Weights are
+per language and per file pattern, so a DTO package can count coupling at half
+the weight of everything else without a second file.
 
 ### cdd check
 
@@ -273,7 +278,7 @@ always includes `blocked=true` or `blocked=false`.
 | `enforcement` | Whether a unit over its limit fails the run. |
 | `timeout` | Wall-clock budget for the whole run. `0s` removes the budget. |
 | `reporter` | `format` picks `console`, `json`, `xml` or `markdown` unless `--format` says otherwise; `outputFile` writes the report to that path instead of stdout. Relative paths are resolved from the configuration directory; absolute paths are unchanged. |
-| `internal_coupling` | Which import prefixes count as internal coupling rather than external. |
+| `internal_coupling` | Which import prefixes count as internal coupling rather than standard-library or external. |
 | `include` / `exclude` | Which files are analyzed. `exclude` wins over `include`. |
 
 Glob paths are relative to the configuration directory, and may begin with
@@ -300,6 +305,16 @@ TypeScript, Kotlin and Java have analyzers. Go is the one language `init`
 still configures without one, and `check` stops with `no analyzer for go
 yet` rather than reporting zero ICPs for files it cannot read.
 
+In TypeScript an import is charged to `internal_coupling` when it is relative
+or sits under one of the configured module prefixes, to `stdlib_coupling`
+when it names a Node.js built-in, and to `external_coupling` otherwise. A
+built-in is any `node:` specifier and any bare specifier whose first path
+segment is a built-in name, so `node:fs`, `fs` and `fs/promises` are the
+standard library while `node-fetch` and `lodash/fp` are not. The Deno and Bun
+standard libraries are not recognised and stay external, and browser globals
+such as `document` and `fetch` are never imported, so they are invisible to a
+per-file analyzer.
+
 Kotlin counts the same constructs TypeScript does, with the same limits, so
 a mixed project reads as one report. A unit is a top-level declaration:
 a class, interface, enum, object, function or type alias, or a property
@@ -309,8 +324,12 @@ declaration, companion objects and inner classes included, bills to it.
 `if` and each `when` arm with a condition are branches, and so is every
 `?.`; `&&`, `||` and `?:` count one per clause; a `try` block, a `catch`
 and a `finally` are one each; every `: Base()` or `: Iface` is one level of
-inheritance; an import counts once per unit that mentions the name it
-binds, and a star import counts once per unit. Only `.kt` files are read;
+inheritance; an import is charged to `internal_coupling` when it sits under
+one of the configured package prefixes, to `stdlib_coupling` when it is
+under `kotlin.` or in a JDK package, and to `external_coupling` otherwise,
+`kotlinx.*` and the `javax.*` packages that never shipped with the JDK, such
+as `javax.inject`, included. It counts once per unit that mentions the name
+it binds, and a star import counts once per unit. Only `.kt` files are read;
 `.kts` scripts are not.
 
 Known limitations of the Kotlin analyzer:
@@ -348,8 +367,14 @@ count per declarator, so `int a, b;` is two, and fields, interface
 constants, declared `try` resources, the binding of a `for (T x : xs)` and
 record components count with them; parameters and pattern variables do not.
 Lambdas and method references are both lambdas, which is off by default. An
-import counts once per unit that mentions the name it binds — for a static
-import that name is the member — and a star import counts once per unit.
+import is charged to `internal_coupling` when it sits under one of the
+configured package prefixes, to `stdlib_coupling` when it names a JDK
+package, which is `java.*`, `jdk.*` and the `javax.*` packages the JDK ships
+such as `javax.crypto`, `javax.swing` and `javax.xml`, and to
+`external_coupling` otherwise, so `javax.servlet`, `javax.persistence`,
+`javax.inject` and `javafx.*` are third-party. It counts once per unit that
+mentions the name it binds, which for a static import is the member, and a
+star import counts once per unit.
 Only `.java` files are read. The grammar comes from the same organisation
 as the TypeScript one and is current with the language: all 264 `.java`
 files of Apache Commons Lang parse without a syntax warning.
