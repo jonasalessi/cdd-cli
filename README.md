@@ -41,13 +41,6 @@ and Java analyzers embed Tree-sitter through cgo, so you need
 | Debian / Ubuntu | gcc, from the `build-essential` package |
 | Windows | gcc, from MSYS2 or MinGW-w64 |
 
-The grammar parse tables are compiled into the binary, which makes it a few
-megabytes larger than a pure-Go build; the Kotlin table adds about 3.5 MB
-on top of the two TypeScript ones, and the Java table about 0.5 MB on top
-of that. The Go analyzer is the exception: it reads `go/parser` from the
-standard library, so it pins no grammar, needs no cgo and adds nothing at
-all to the binary.
-
 Or from a clone:
 
 ```sh
@@ -91,9 +84,9 @@ With no flags it asks one question at a time.
    internal, and whether to skip tests and generated code. The defaults suit
    most projects.
 
-The answers come out as commented YAML. [cdd.config.yaml](cdd.config.yaml) is
-the file this repository uses on itself, and `init` writes the same comments
-into yours.
+The answers come out as commented YAML that explains every key.
+[cdd.config.yaml](cdd.config.yaml) is the file this repository uses on
+itself, and `init` writes the same comments into yours.
 
 #### Without the questions
 
@@ -107,12 +100,6 @@ cdd init --yes \
   --legacy-mode strict_on_new_only \
   --limit 25 \
   --metrics code_branch,condition,internal_coupling,external_coupling
-```
-
-It prints one line when the file lands:
-
-```
-Created cdd.config.yaml — languages: go, typescript · project: legacy · limit: 25 · metrics: 4
 ```
 
 | Flag | What it sets |
@@ -131,15 +118,9 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 | `--output` | Writes the file here instead of the path in `--config`. |
 | `--yes` | Skips every prompt. |
 
-#### When the file already exists
-
-`init` never overwrites a `cdd.config.yaml` by accident.
-
-- `--force` overwrites it and says nothing about it.
-- Without `--force`, a run in a terminal asks first. Answer no and it prints
-  `aborted` and exits 0.
-- A run with no prompts, so `--yes` or CI, has nobody to ask. It fails with
-  `cdd.config.yaml exists; pass --force to overwrite` and exits 1.
+`init` never overwrites a `cdd.config.yaml` by accident. In a terminal it asks
+first; with `--yes` or in CI it fails with `cdd.config.yaml exists; pass
+--force to overwrite`. Pass `--force` to overwrite without asking.
 
 #### The metric vocabulary
 
@@ -156,12 +137,10 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 | `lambda` | 1.0 | all | Lambdas, method references, func literals. Off by default |
 
 Every metric except `stdlib_coupling`, `local_variable` and `lambda` is ticked
-by default. A configuration that leaves `stdlib_coupling` out counts
-standard-library imports as nothing at all, so a project configured before the
-metric existed reads lower than it used to; adding `stdlib_coupling: 0.5` next
-to `external_coupling` in each language brings the old totals back. Weights are
-per language and per file pattern, so a DTO package can count coupling at half
-the weight of everything else without a second file.
+by default. Weights are per language and per file pattern, so a DTO package
+can count coupling at half the weight of everything else without a second
+file. [docs/languages.md](docs/languages.md) says exactly what each analyzer
+counts under each metric, and what it cannot see.
 
 ### cdd check
 
@@ -169,18 +148,6 @@ the weight of everything else without a second file.
 unit and compares each one with the limit its file resolves to. It analyzes
 the tree rooted at the configuration file's directory, so a configuration in a
 subdirectory measures that subdirectory alone.
-
-Paths narrow the run to the named files and directories. They are resolved
-from the working directory and must lie under the configuration's directory,
-since the limits and the internal coupling are resolved against it. Several
-paths may share one argument separated by commas. A named file must belong to
-a configured language and pass `include` / `exclude`, so asking for a file
-the run would skip is an error rather than an empty report. An editor plugin
-re-checks the files that were just saved with:
-
-```sh
-cdd check src/order/service.ts,src/order/repository.ts --explain --format json
-```
 
 ```
 $ cdd check
@@ -196,25 +163,15 @@ scored and by how much it is over, and the `metrics` line breaks the score
 down: a bare `condition=10` counts ten conditions at weight 1, while
 `external_coupling=1x0.5` counts one coupling at weight 0.5. The first line
 counts the whole run either way, so `units=2` includes what is not listed.
+Its headline is `PASS` when there are no violations, `WARN` when violations
+do not block the run, and `FAIL` when they do.
 
-`--all` adds every unit within its limit, after the violations:
-
-```
-$ cdd check --all
-cdd check: FAIL violations=1 units=2 blocked=true root=. elapsed=1ms
-
-violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
-  metrics: condition=10 code_branch=5 internal_coupling=1 external_coupling=1x0.5
-
-unit: src/greeter.ts:1:8 class Greeter icp=1 limit=10
-  metrics: code_branch=1
-```
-
-`--explain` details whatever is listed. Under the `metrics` line it adds one
-line per counted construct, saying where it is and what it contributed:
+`--all` adds every unit within its limit, and `--explain` adds one line per
+counted construct under each listed unit, saying where it is and what it
+contributed:
 
 ```
-$ cdd check --explain
+$ cdd check --all --explain
 cdd check: FAIL violations=1 units=2 blocked=true root=. elapsed=1ms
 
 violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.5
@@ -222,46 +179,25 @@ violation: src/order-service.ts:4:8 class OrderService icp=16.5 limit=10 over=6.
   icp: 1:1-1:34 external_coupling +0.5
   icp: 5:5-7:6 code_branch +1
   icp: 5:9-5:14 condition +1
+
+unit: src/greeter.ts:1:8 class Greeter icp=1 limit=10
+  metrics: code_branch=1
+  icp: 3:5-5:6 code_branch +1
 ```
 
-Each line reads `<line>:<col>-<end_line>:<end_col> <metric> +<icps>`. The range
-is 1-based and its end points just past the construct, the way an editor
-selects text. A unit whose constructs the analyzer could not locate gains no
-line, so `--explain` never invents a position.
-
-The two filters are independent: `--all` chooses which units are listed,
-`--explain` details the ones that are. An editor plugin wants both.
-
-In `json` and `xml` the detail is per unit rather than per line, and the
-top-level `explain` field says whether it was asked for at all:
-
-```json
-{
-  "unit": "OrderService",
-  "metric": "code_branch",
-  "line": 5, "col": 5, "end_line": 7, "end_col": 6,
-  "count": 1, "score": 1
-}
-```
-
-`unit` repeats the name of the owning unit so a plugin can flatten every
-occurrence of a file into one list. Without `--explain` the `occurrences` key
-is absent; with it, a unit that counted nothing carries an empty list. This is
-the contract the IntelliJ and VS Code plugins read, so they run
+Paths narrow the run to the named files and directories, which is how an
+editor re-checks the files that were just saved:
 
 ```sh
-cdd check --all --explain
+cdd check src/order/service.ts,src/order/repository.ts --explain --format json
 ```
 
-with `format: json` and turn each occurrence into an inline hint.
-
-`check` reports a file the analyzer could not read as `warning: <path>: <text>`
-at the end, and a run cut short by the timeout adds `partial=true` to the
-first line. The `json` and `xml` reports carry the same filter under a
-`filter` field, `violations` or `all`, so a reader knows why a unit is
-missing. The console headline uses `PASS` when there are no violations,
-`WARN` when violations do not block the run, and `FAIL` when they do; it
-always includes `blocked=true` or `blocked=false`.
+They are resolved from the working directory and must lie under the
+configuration's directory. A named file must belong to a configured language
+and pass `include` / `exclude`, so asking for a file the run would skip is an
+error rather than an empty report. The `json` and `xml` formats are the
+contract editor plugins read; [docs/editor-integration.md](docs/editor-integration.md)
+describes it.
 
 | Argument or flag | What it does |
 | --- | --- |
@@ -271,26 +207,8 @@ always includes `blocked=true` or `blocked=false`.
 | `--format` | Renders the report as `console`, `json`, `xml` or `markdown`, ignoring the configured `reporter.format`. |
 | `--config` | Path to the configuration file. Default `cdd.config.yaml`. |
 
-#### What it reads from the configuration
-
-| Key | What `check` does with it |
-| --- | --- |
-| `metrics` | Which constructs count per language and file pattern, and their weights. A metric absent from the merged weights is not counted. |
-| `icp-limits` | The limit each unit is compared with. The last matching pattern wins. |
-| `enforcement` | Whether a unit over its limit fails the run. |
-| `timeout` | Wall-clock budget for the whole run. `0s` removes the budget. |
-| `reporter` | `format` picks `console`, `json`, `xml` or `markdown` unless `--format` says otherwise; `outputFile` writes the report to that path instead of stdout. Relative paths are resolved from the configuration directory; absolute paths are unchanged. |
-| `internal_coupling` | Which import prefixes count as internal coupling rather than standard-library or external. |
-| `include` / `exclude` | Which files are analyzed. `exclude` wins over `include`. |
-
-Glob paths are relative to the configuration directory, and may begin with
-`./`. An implicit full-tree walk prunes `.git`, `node_modules`, `vendor`,
-`build`, `dist`, `target`, and `out`; explicitly naming one of those
-directories as a `check` path opts into analyzing it.
-
-Only `strict_all` blocks today. `strict_on_new_only` and `boy_scout` need the
-git history and the baseline store, neither of which exists yet, so `check`
-reports their violations and says they are not enforced.
+Only `strict_all` blocks today. `strict_on_new_only` and `boy_scout` report
+their violations and say they are not enforced.
 
 #### Exit codes
 
@@ -301,172 +219,21 @@ reports their violations and says they are not enforced.
 | `2` | The timeout elapsed. The report printed first covers the files analyzed in time. |
 | `1` | Usage error, missing configuration file, or a configuration that fails validation. |
 
-#### Language support
+## Language support
 
-All four configurable languages have an analyzer: TypeScript, Kotlin, Java
-and Go.
+TypeScript, Kotlin, Java and Go. All four count the same constructs, so a
+mixed project reads as one report.
 
-In TypeScript an import is charged to `internal_coupling` when it is relative
-or sits under one of the configured module prefixes, to `stdlib_coupling`
-when it names a Node.js built-in, and to `external_coupling` otherwise. A
-built-in is any `node:` specifier and any bare specifier whose first path
-segment is a built-in name, so `node:fs`, `fs` and `fs/promises` are the
-standard library while `node-fetch` and `lodash/fp` are not. The Deno and Bun
-standard libraries are not recognised and stay external, and browser globals
-such as `document` and `fetch` are never imported, so they are invisible to a
-per-file analyzer.
+| Language | Files read | Not counted |
+| --- | --- | --- |
+| TypeScript | `.ts`, `.tsx` | Deno and Bun standard libraries stay external |
+| Kotlin | `.kt` | `Type::method` references as lambdas; a few layouts the grammar rejects |
+| Java | `.java` | Bitwise `&` and `\|` as conditions; top-level statements of a compact source file |
+| Go | `.go` | `exception_handling`; top-level `var` and `const`; generated files |
 
-Kotlin counts the same constructs TypeScript does, with the same limits, so
-a mixed project reads as one report. A unit is a top-level declaration:
-a class, interface, enum, object, function or type alias, or a property
-whose value is code (a lambda, an anonymous function, an accessor with a
-body, or a delegate such as `by lazy`). Everything nested inside a
-declaration, companion objects and inner classes included, bills to it.
-`if` and each `when` arm with a condition are branches, and so is every
-`?.`; `&&`, `||` and `?:` count one per clause; a `try` block, a `catch`
-and a `finally` are one each; every `: Base()` or `: Iface` is one level of
-inheritance; an import is charged to `internal_coupling` when it sits under
-one of the configured package prefixes, to `stdlib_coupling` when it is
-under `kotlin.` or in a JDK package, and to `external_coupling` otherwise,
-`kotlinx.*` and the `javax.*` packages that never shipped with the JDK, such
-as `javax.inject`, included. It counts once per unit that mentions the name
-it binds, and a star import counts once per unit. Only `.kt` files are read;
-`.kts` scripts are not.
-
-Known limitations of the Kotlin analyzer:
-
-- Same-package references need no import and are invisible to a per-file
-  analyzer, so they add no coupling. Listing the package in
-  `internal_coupling.packages` does not change that.
-- `Type::method` references (`String::trim`) parse as member accesses in
-  the grammar and are not counted as lambdas; a bare `::name` is.
-- Scope functions (`let`, `apply`, `run`, `also`, `with`) are lambdas like
-  any other. `lambda` is off by default; a team that turns it on can weigh
-  it.
-- The grammar rejects a few layouts that the Kotlin compiler accepts: a
-  class member on the same line as the opening brace (`class A { val x = 1 }`),
-  a statement starting with an identifier such as `in1`, and a call to a
-  function named after a soft keyword (`open(x)`). Such a file gets a
-  `syntax error` warning and no units; on a large ktlint-formatted codebase
-  that is about one file in a hundred.
-
-Java counts the same constructs again, so a JVM project that mixes it with
-Kotlin reads as one report. A unit is a top-level type — a class,
-interface, enum, record or annotation type — or the top-level method of a
-compact source file, which has no type to bill to. Nested types, methods,
-constructors and initializers bill to the type around them, and there is no
-visibility filter, so a package-private class is a unit like any other.
-`if` and its `else` are branches, an `else if` charging itself rather than
-its parent; so is each `switch` arm that tests a value, each ternary and
-each loop, while `default` is free and an old-style arm whose labels share
-one statement list is one arm. `&&` and `||` count one per clause,
-flattened through parentheses and `!`. A `try` block, each `catch` and a
-`finally` are one each, and a multi-catch is one catch. Every `extends` and
-every `implements` type is one level of inheritance, and so is an anonymous
-class such as `new Runnable() { … }`; `permits` is not. Local variables
-count per declarator, so `int a, b;` is two, and fields, interface
-constants, declared `try` resources, the binding of a `for (T x : xs)` and
-record components count with them; parameters and pattern variables do not.
-Lambdas and method references are both lambdas, which is off by default. An
-import is charged to `internal_coupling` when it sits under one of the
-configured package prefixes, to `stdlib_coupling` when it names a JDK
-package, which is `java.*`, `jdk.*` and the `javax.*` packages the JDK ships
-such as `javax.crypto`, `javax.swing` and `javax.xml`, and to
-`external_coupling` otherwise, so `javax.servlet`, `javax.persistence`,
-`javax.inject` and `javafx.*` are third-party. It counts once per unit that
-mentions the name it binds, which for a static import is the member, and a
-star import counts once per unit.
-Only `.java` files are read. The grammar comes from the same organisation
-as the TypeScript one and is current with the language: all 264 `.java`
-files of Apache Commons Lang parse without a syntax warning.
-
-Known limitations of the Java analyzer:
-
-- Same-package references need no import, and a fully-qualified reference
-  written inline (`java.time.Instant.now()`) has none, so neither adds
-  coupling. Listing the package in `internal_coupling.packages` does not
-  change that.
-- Bitwise `&` and `|` are not conditions. Their Boolean, non-short-circuit
-  meaning cannot be told from the arithmetic one without resolving types,
-  and counting `flags & MASK` as a clause would cost more credibility than
-  the missed Boolean forms are worth.
-- A compact source file's top-level statements are not a unit, so a field
-  declared outside every method is invisible, the way a top-level `val` is
-  in Kotlin.
-- A `switch` arm made of labels alone, with no statement after them at all,
-  is not counted: the arm is charged where its statements are, and such an
-  arm has none.
-
-Go counts the same constructs again, so a repository that measures a Go
-service and a TypeScript front end reads as one report. A unit is a
-top-level type with every method billed to it, wherever in the file the
-method is written, or a top-level function with no receiver; the methods
-of a type another file declares form one `methods` unit per file, which
-applies file by file the remedy [docs/cdd.md](docs/cdd.md) section 5 gives
-for a type split across files. Nothing nested is a unit, and the kind a
-unit reports is what a reader sees at the declaration: `struct`,
-`interface`, `type`, `func` or `methods`. An `if` is a branch and so is a
-plain `else`, an `else if` charging itself rather than its parent; each
-`case` of a `switch` or a type switch and each `case` of a `select` is one
-branch however many values it lists, while `default` is free; every `for`,
-in all four of its shapes, and every `range` is one. `&&` and `||` count
-one per clause, flattened through parentheses and `!`, while the bitwise
-`&`, `|`, `^` and `&^` are arithmetic on bits and count nothing. Embedding is Go's
-inheritance: an embedded struct field and an embedded interface are one
-level each, while a type set — `~string`, or an `A | B` union of terms —
-constrains what may instantiate a parameter and is not a supertype to
-follow. Local variables count per name: the fields of every struct in the
-unit, anonymous ones included, the names of a `var` or a `const`, the new
-names of a `:=`, so `z, err := split(y)` charges `err` alone when `z`
-already exists, and the non-blank bindings of a `range`. Every func
-literal is a lambda, the one behind a `go` or a `defer` included. An
-import is charged to each unit that qualifies something by the name it
-binds — its alias, or the name goimports would assume for the path, which
-reads `gopkg.in/yaml.v3` as `yaml` and `github.com/jackc/pgx/v5` as `pgx`
-— so a parameter named after a package shadows it and costs nothing,
-while a `.` or `_` import binds no name a reference can carry and is
-charged to every unit of the file. It counts as `internal_coupling` when
-it sits under one of the configured prefixes or under the module path in
-`go.mod`, as `stdlib_coupling` when the first element of the path holds no
-dot, which is the rule the go command itself resolves against GOROOT, and
-as `external_coupling` otherwise, so `golang.org/x/...` is a third-party
-dependency like any other. Only `.go` files are read.
-
-Known limitations of the Go analyzer:
-
-- Top-level `var` and `const` declarations are not units, so everything
-  they hold is invisible: a func literal assigned to a package-level
-  variable is no lambda, and an import only such a declaration uses is
-  charged nowhere. It is the hole a top-level `val` leaves in Kotlin and a
-  compact source file leaves in Java.
-- A method value (`l.Wire`) and a method expression (`Lambdas.Wire`) are
-  not lambdas. Without types, a selector that yields a function cannot be
-  told from a field access, and guessing from capitalisation would be a
-  heuristic rather than a rule.
-- An import whose package clause disagrees with the name assumed for its
-  path, which is rare and usually written with an alias anyway, matches no
-  qualifier and is charged to no unit at all — the same outcome as an
-  unused import, rather than a charge landing on the wrong unit.
-- `import "C"` counts as standard library. The cgo pseudo-package holds no
-  dot, so the rule above resolves it like `fmt`.
-- Parameters, receivers, named results and the `v` of
-  `switch v := x.(type)` are not local variables. A signature is a
-  contract rather than a temporary to hold in mind, and the type-switch
-  guard is Go's pattern variable, which Java does not count either.
-- A generated file — one carrying the `// Code generated … DO NOT EDIT.`
-  line the toolchain defines — yields no units and no warning. Counting a
-  bundled `.pb.go` would drown every hand-written unit in the report.
-- `_test.go` files and `vendor/**` are excluded by default. Drop them from
-  `exclude` to measure them.
-- `exception_handling` never applies. Go has no handler construct:
-  `if err != nil` is a branch and nothing more, and `defer`, `recover` and
-  `panic` are worth nothing.
-- Same-package references need no import and are invisible to a per-file
-  analyzer, so they add no coupling. Listing the module in
-  `internal_coupling.packages` does not change that.
-- With `--explain`, the occurrence of an `else` spans its block rather
-  than the `else` keyword, because `go/ast` keeps no position for the
-  keyword.
+Same-package references need no import and are invisible to a per-file
+analyzer, so they add no coupling in any language. The full counting rules
+and every known limitation are in [docs/languages.md](docs/languages.md).
 
 ## Support
 
