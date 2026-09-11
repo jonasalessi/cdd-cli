@@ -1,6 +1,7 @@
 package languages
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/jonasalessi/cdd-cli/internal/analyze"
 	"github.com/jonasalessi/cdd-cli/internal/config"
 )
 
@@ -68,7 +70,12 @@ func TestEveryAnalyzerIsWired(t *testing.T) {
 			continue
 		}
 		require.NoError(t, err)
-		assert.NotNil(t, l.NewAnalyzer, "language %q has an analyzer.go but no NewAnalyzer", l.Spec.ID)
+		require.NotNil(t, l.NewAnalyzer, "language %q has an analyzer.go but no NewAnalyzer", l.Spec.ID)
+		a := l.NewAnalyzer(analyze.Options{})
+		assert.NotNil(t, a, "language %q builds a nil analyzer", l.Spec.ID)
+		if closer, ok := a.(io.Closer); ok {
+			assert.NoError(t, closer.Close())
+		}
 	}
 }
 

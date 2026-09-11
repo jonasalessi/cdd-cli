@@ -56,13 +56,19 @@ func forbiddenLiterals() map[string]bool {
 }
 
 // literalExempt reports whether rel may spell out vocabulary ids: the
-// vocabulary itself and each language's spec.
+// vocabulary itself, each language's spec, and each language's standard
+// library table, which is language knowledge like the spec and names
+// modules such as the Node.js "console" that collide with the vocabulary.
 func literalExempt(rel string) bool {
 	if rel == "internal/config/vocabulary.go" {
 		return true
 	}
-	ok, _ := path.Match("internal/analyze/*/spec.go", rel)
-	return ok
+	for _, pattern := range []string{"internal/analyze/*/spec.go", "internal/analyze/*/stdlib.go"} {
+		if ok, _ := path.Match(pattern, rel); ok {
+			return true
+		}
+	}
+	return false
 }
 
 // languageDir reports whether rel lives where language knowledge belongs:
@@ -189,6 +195,7 @@ func isLanguageTable(lit *ast.CompositeLit, inConfig bool) bool {
 func TestLiteralsHelpers(t *testing.T) {
 	require.True(t, literalExempt("internal/config/vocabulary.go"))
 	require.True(t, literalExempt("internal/analyze/kotlin/spec.go"))
+	require.True(t, literalExempt("internal/analyze/typescript/stdlib.go"))
 	require.False(t, literalExempt("internal/analyze/kotlin/analyzer.go"))
 	require.False(t, literalExempt("internal/detect/languages.go"))
 

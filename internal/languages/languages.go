@@ -19,7 +19,7 @@ import (
 // fresh slice.
 func All() []analyze.Language {
 	return []analyze.Language{
-		{Spec: golang.Spec()},
+		{Spec: golang.Spec(), NewAnalyzer: golang.NewAnalyzer},
 		{Spec: java.Spec(), NewAnalyzer: java.NewAnalyzer},
 		{Spec: kotlin.Spec(), NewAnalyzer: kotlin.NewAnalyzer},
 		{Spec: typescript.Spec(), NewAnalyzer: typescript.NewAnalyzer},

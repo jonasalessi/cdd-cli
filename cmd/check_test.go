@@ -17,7 +17,8 @@ import (
 
 // checkMetrics is the metric set every fixture enables, so a fixture's ICPs
 // do not move when the default selection does.
-const checkMetrics = "code_branch,condition,exception_handling,internal_coupling,external_coupling,inheritance"
+const checkMetrics = "code_branch,condition,exception_handling," +
+	"internal_coupling,external_coupling,stdlib_coupling,inheritance"
 
 // violationLabel opens the console record of a unit above its limit, and
 // unitLabel the record of one within it.
@@ -452,17 +453,6 @@ func TestCheckTimeoutReportsPartially(t *testing.T) {
 	assert.Equal(t, 2, code)
 	assert.Contains(t, stdout, "partial=true")
 	assert.Contains(t, stderr, "timeout")
-}
-
-func TestCheckSelectedUnavailableLanguage(t *testing.T) {
-	dir := t.TempDir()
-	writeGoFixture(t, dir)
-	_, stderr, code := runCdd(t, dir, "init", "--yes", "--force", "--languages", "go")
-	require.Equal(t, 0, code, "stderr: %s", stderr)
-
-	_, stderr, code = runCdd(t, dir, "check")
-	assert.Equal(t, 1, code)
-	assert.Contains(t, stderr, "no analyzer for go yet")
 }
 
 func TestCheckMissingConfig(t *testing.T) {

@@ -63,7 +63,9 @@ func fixtureLines(t *testing.T, name string) []string {
 // isCoupling reports whether a metric is charged on an import statement,
 // which is the one occurrence that sits outside the unit it belongs to.
 func isCoupling(m config.MetricID) bool {
-	return m == config.MetricInternalCoupling || m == config.MetricExternalCoupling
+	return m == config.MetricInternalCoupling ||
+		m == config.MetricExternalCoupling ||
+		m == config.MetricStdlibCoupling
 }
 
 // lastLine returns the last line a unit may charge: units are top level and

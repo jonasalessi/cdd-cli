@@ -13,10 +13,11 @@ import (
 // against, the `internal_coupling.packages` entry of a real project.
 const acmePrefix = "com.acme"
 
-// couplingCase is one unit's expected coupling in a fixture.
+// couplingCase is one unit's expected coupling in a fixture, stated for the
+// three coupling metrics at once so none is left implicit (TC-J10).
 type couplingCase struct {
-	unit               string
-	internal, external int
+	unit                       string
+	internal, external, stdlib int
 }
 
 // requireCoupling asserts the coupling counts of every listed unit.
@@ -27,6 +28,7 @@ func requireCoupling(t *testing.T, res analyze.FileResult, cases []couplingCase)
 			u := unitNamed(t, res, c.unit)
 			requireCount(t, u, config.MetricInternalCoupling, c.internal)
 			requireCount(t, u, config.MetricExternalCoupling, c.external)
+			requireCount(t, u, config.MetricStdlibCoupling, c.stdlib)
 		})
 	}
 }
@@ -39,9 +41,9 @@ func TestCoupling(t *testing.T) {
 	require.Empty(t, res.Warnings)
 
 	requireCoupling(t, res, []couplingCase{
-		{"Invoice", 2, 2}, // Money and rate; Instant and the star
-		{"Note", 1, 1},    // Ledger; the star only
-		{"Plain", 0, 1},   // the star charges every unit
+		{"Invoice", 2, 0, 2}, // Money and rate; Instant and the star are the JDK
+		{"Note", 1, 0, 1},    // Ledger; the star only
+		{"Plain", 0, 0, 1},   // the star charges every unit
 	})
 	requireCount(t, unitNamed(t, res, "Invoice"), config.MetricLocalVariable, 1)
 	requireCount(t, unitNamed(t, res, "Note"), config.MetricLocalVariable, 1)
@@ -53,14 +55,15 @@ func TestCouplingWithoutTheStar(t *testing.T) {
 	require.Empty(t, res.Warnings)
 
 	requireCoupling(t, res, []couplingCase{
-		{"Invoice", 2, 1},
-		{"Note", 1, 0},
-		{"Plain", 0, 0},
+		{"Invoice", 2, 0, 1},
+		{"Note", 1, 0, 0},
+		{"Plain", 0, 0, 0},
 	})
 }
 
-// TestCouplingOccurrencesPointAtTheImport (TC-C7): every coupling occurrence
-// sits on an import statement, above the unit it is charged to.
+// TestCouplingOccurrencesPointAtTheImport (TC-C7, TC-J7): every coupling
+// occurrence sits on an import statement, above the unit it is charged to,
+// and the JDK imports are the stdlib ones.
 func TestCouplingOccurrencesPointAtTheImport(t *testing.T) {
 	src := readFixture(t, "coupling.java")
 	res := analyzeFixture(t, "coupling.java", acmePrefix)
@@ -68,7 +71,7 @@ func TestCouplingOccurrencesPointAtTheImport(t *testing.T) {
 	imports := map[int]bool{3: true, 4: true, 5: true, 6: true, 7: true}
 	for _, u := range res.Units {
 		for _, o := range u.Occurrences {
-			if o.Metric != config.MetricInternalCoupling && o.Metric != config.MetricExternalCoupling {
+			if !isCoupling(o.Metric) {
 				continue
 			}
 			require.True(t, imports[o.Line], "unit %q: %+v", u.Name, o)
@@ -82,7 +85,8 @@ func TestCouplingOccurrencesPointAtTheImport(t *testing.T) {
 		occurrenceTexts(t, src, invoice, config.MetricInternalCoupling))
 	require.Equal(t,
 		[]string{"import java.time.Instant;", "import java.util.*;"},
-		occurrenceTexts(t, src, invoice, config.MetricExternalCoupling))
+		occurrenceTexts(t, src, invoice, config.MetricStdlibCoupling))
+	require.Empty(t, occurrenceTexts(t, src, invoice, config.MetricExternalCoupling))
 }
 
 // TestStaticImportBindsTheMember (TC-C5): `import static a.b.Rates.rate`
@@ -161,33 +165,35 @@ func TestReferencesWithoutAnImportAreInvisible(t *testing.T) {
 	u := unitNamed(t, res, "U")
 	requireCount(t, u, config.MetricInternalCoupling, 0)
 	requireCount(t, u, config.MetricExternalCoupling, 0)
+	requireCount(t, u, config.MetricStdlibCoupling, 0)
 }
 
-// TestPrefixesClassifyThroughTheAnalyzer (TC-C8, TC-C15) runs the internal
-// prefixes end to end through analyze.Options: a prefix matches its own path
-// and its dot-subpaths, an empty prefix matches nothing, and `java.*` stays
-// external however the project is configured -- the analyzer never guesses
-// from the file's own package.
+// TestPrefixesClassifyThroughTheAnalyzer (TC-C8, TC-C15, TC-J8) runs the
+// internal prefixes end to end through analyze.Options: a prefix matches its
+// own path and its dot-subpaths, an empty prefix matches nothing, and the JDK
+// import stays standard library however the project is configured -- the
+// analyzer never guesses from the file's own package.
 func TestPrefixesClassifyThroughTheAnalyzer(t *testing.T) {
 	src := "package com.acme.billing;\n\nimport com.acme.shared.Money;\nimport java.util.List;\n\n" +
 		"class U {\n    Money amount;\n    List<String> tags;\n}\n"
 	cases := []struct {
-		name               string
-		prefixes           []string
-		internal, external int
+		name                       string
+		prefixes                   []string
+		internal, external, stdlib int
 	}{
-		{"exact package", []string{"com.acme.shared"}, 1, 1},
-		{"parent package", []string{acmePrefix}, 1, 1},
-		{"the path itself", []string{"com.acme.shared.Money"}, 1, 1},
-		{"a longer name", []string{"com.acmecorp"}, 0, 2},
-		{"an empty prefix", []string{""}, 0, 2},
-		{"no prefixes", nil, 0, 2},
+		{"exact package", []string{"com.acme.shared"}, 1, 0, 1},
+		{"parent package", []string{acmePrefix}, 1, 0, 1},
+		{"the path itself", []string{"com.acme.shared.Money"}, 1, 0, 1},
+		{"a longer name", []string{"com.acmecorp"}, 0, 1, 1},
+		{"an empty prefix", []string{""}, 0, 1, 1},
+		{"no prefixes", nil, 0, 1, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			u := unitNamed(t, analyzeSource(t, src, c.prefixes...), "U")
 			requireCount(t, u, config.MetricInternalCoupling, c.internal)
 			requireCount(t, u, config.MetricExternalCoupling, c.external)
+			requireCount(t, u, config.MetricStdlibCoupling, c.stdlib)
 		})
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -113,8 +112,7 @@ func TestInitYesDetectsGoProject(t *testing.T) {
 	stdout, stderr, code := runCdd(t, dir, "init", "--yes")
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 	assert.Contains(t, stdout, "Created cdd.config.yaml")
-	assert.Contains(t, stderr, "warning: no analyzer for go yet")
-	assert.Equal(t, 1, strings.Count(stderr, "no analyzer for go yet"))
+	assert.NotContains(t, stderr, "no analyzer")
 
 	cfg := loadConfig(t, dir)
 	require.Len(t, cfg.Metrics, 1)
@@ -123,7 +121,7 @@ func TestInitYesDetectsGoProject(t *testing.T) {
 	assert.Equal(t, config.ProjectGreenfield, cfg.ProjectType)
 }
 
-func TestInitWarnsOnceForUnavailableAnalyzer(t *testing.T) {
+func TestInitNeverWarnsAboutTheGoAnalyzer(t *testing.T) {
 	tests := map[string][]string{
 		"automatically detected": nil,
 		"explicitly selected":    {"--languages", "go"},
@@ -137,7 +135,7 @@ func TestInitWarnsOnceForUnavailableAnalyzer(t *testing.T) {
 			_, stderr, code := runCdd(t, dir, args...)
 
 			require.Equal(t, 0, code, "stderr: %s", stderr)
-			assert.Equal(t, 1, strings.Count(stderr, "warning: no analyzer for go yet"))
+			assert.NotContains(t, stderr, "no analyzer")
 			assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
 		})
 	}
@@ -189,14 +187,14 @@ func TestInitMetricsFlagFilteredPerLanguage(t *testing.T) {
 	dir := t.TempDir()
 	_, stderr, code := runCdd(t, dir, "init", "--yes",
 		"--languages", "go,java",
-		"--metrics", "code_branch,condition,inheritance,internal_coupling",
+		"--metrics", "code_branch,condition,exception_handling,internal_coupling",
 	)
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 
 	cfg := loadConfig(t, dir)
-	assert.Len(t, cfg.Metrics[langGo][0].Weights, 3, "inheritance does not apply to go")
+	assert.Len(t, cfg.Metrics[langGo][0].Weights, 3, "exception_handling does not apply to go")
 	assert.Len(t, cfg.Metrics[langJava][0].Weights, 4)
-	assert.Contains(t, cfg.Metrics[langJava][0].Weights, config.MetricInheritance)
+	assert.Contains(t, cfg.Metrics[langJava][0].Weights, config.MetricExceptionHandling)
 }
 
 func TestInitMeasureOnlyDisablesCI(t *testing.T) {
@@ -251,7 +249,7 @@ func TestInitWeightFlagErrors(t *testing.T) {
 		"not a number":      {"code_branch=heavy", "is not a number"},
 		"unknown metric":    {"karma=2", "unknown metric"},
 		"go cannot count it": {
-			"inheritance=2", "none of the selected languages can count",
+			"exception_handling=2", "none of the selected languages can count",
 		},
 	}
 	for name, tt := range tests {
@@ -340,7 +338,7 @@ func TestInitScanTimeoutTruncation(t *testing.T) {
 		_, stderr, code := runCdd(t, dir, "init", "--yes", "--scan-timeout", "0")
 		require.Equal(t, 0, code, "stderr: %s", stderr)
 		assert.NotContains(t, stderr, "scan stopped")
-		assert.Equal(t, 1, strings.Count(stderr, "warning: no analyzer for go yet"))
+		assert.NotContains(t, stderr, "no analyzer")
 		assert.Contains(t, loadConfig(t, dir).Metrics, langGo)
 	})
 }

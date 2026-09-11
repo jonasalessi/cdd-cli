@@ -1,8 +1,10 @@
 // Package jvm holds what the Java and Kotlin analyzers share because it is
 // about the JVM rather than about one language: the package-prefix detection
-// in this file, since both declare packages the same way, and the import
+// in this file, since both declare packages the same way, and the coupling
 // classification and per-unit attribution in imports.go, since both import
-// qualified paths. Grammar walking stays with each analyzer.
+// qualified paths. Which paths are standard library differs per language, so
+// each analyzer passes its own predicate. Grammar walking stays with each
+// analyzer.
 package jvm
 
 import (

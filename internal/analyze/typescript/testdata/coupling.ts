@@ -2,8 +2,8 @@
 //
 // internal modules: "./repo", "@app/services", "@app/config", "./polyfill",
 //                   "./legacy"
-// external modules: "node:fs/promises", "lodash/fp", "react", "ink",
-//                   "reflect-metadata", "node:path"
+// external modules: "lodash/fp", "react", "ink", "reflect-metadata"
+// stdlib modules:   "node:fs/promises", "node:path"
 import { Repo } from "./repo";
 import { Other } from "./repo"; // same module, counted once per unit
 import { Service } from "@app/services";
@@ -16,7 +16,7 @@ import "./polyfill"; // internal side effect: charged to every unit
 import "reflect-metadata"; // external side effect: charged to every unit
 // `import x = require("y")` binds one name, exactly like a default import.
 import legacy = require("./legacy"); // internal
-import nodePath = require("node:path"); // external
+import nodePath = require("node:path"); // stdlib
 
 // internal 2: ./repo, ./polyfill
 // external 1: reflect-metadata
@@ -29,7 +29,8 @@ export class UsesInternal {
 }
 
 // internal 1: ./polyfill
-// external 3: node:fs/promises, lodash/fp, reflect-metadata
+// external 2: lodash/fp, reflect-metadata
+// stdlib 1: node:fs/promises
 export function usesExternal(): void {
   void readFile;
   void lodash;
@@ -61,7 +62,8 @@ export interface Untouched {
 }
 
 // internal 2: ./legacy, ./polyfill
-// external 2: node:path, reflect-metadata
+// external 1: reflect-metadata
+// stdlib 1: node:path
 export function usesRequire(): void {
   void legacy;
   void nodePath;

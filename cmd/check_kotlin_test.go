@@ -257,7 +257,7 @@ func TestCheckKotlinAutoDetectsPackages(t *testing.T) {
 	require.Equal(t, 0, code, "stderr: %s", stderr)
 	assert.Contains(t, stdout, "class Invoice icp=1.5 limit=10")
 	assert.Contains(t, stdout, "internal_coupling=1")
-	assert.Contains(t, stdout, "external_coupling=1")
+	assert.Contains(t, stdout, "stdlib_coupling=1x0.5")
 }
 
 // TestCheckKotlinTimeoutReportsPartially (TC-Z12): the Kotlin analyzer

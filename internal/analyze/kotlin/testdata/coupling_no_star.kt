@@ -2,12 +2,12 @@ package com.acme.billing
 
 import com.acme.shared.Money
 import com.acme.shared.Ledger as L
-import java.time.Instant
+import java.time.Instant             // stdlib: the JDK is Kotlin's other platform
 
-class Invoice(val amount: Money) {    // internal 1, external 1
+class Invoice(val amount: Money) {    // internal 1, external 0, stdlib 1 (Instant)
     fun at(): Instant = Instant.now()
 }
-class Note {                          // internal 1, external 0
+class Note {                          // internal 1, external 0, stdlib 0
     val l = L()
 }
-class Plain                           // internal 0, external 0
+class Plain                           // internal 0, external 0, stdlib 0

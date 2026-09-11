@@ -8,7 +8,8 @@ import (
 
 func TestSpecApplicable(t *testing.T) {
 	assert.Equal(t, []MetricID{
-		"code_branch", "condition", "internal_coupling", "external_coupling", "local_variable", "lambda",
+		"code_branch", "condition", "internal_coupling", "external_coupling", "stdlib_coupling",
+		"local_variable", "lambda",
 	}, gammaSpec().Applicable())
 	assert.Equal(t, Metrics(), alphaSpec().Applicable(), "no exclusions means every metric, in Metrics order")
 

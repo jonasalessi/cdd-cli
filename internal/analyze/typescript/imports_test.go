@@ -19,22 +19,23 @@ func TestCoupling(t *testing.T) {
 	res := analyzeFixture(t, "coupling.ts", appPrefix)
 	require.Empty(t, res.Warnings)
 	cases := []struct {
-		unit               string
-		internal, external int
+		unit                       string
+		internal, external, stdlib int
 	}{
-		{"UsesInternal", 2, 1},
-		{"usesExternal", 1, 3},
-		{"usesBoth", 2, 1},
-		{"Wrapper", 3, 1},
-		{"renderer", 1, 3},
-		{"Untouched", 1, 1},
-		{"usesRequire", 2, 2},
+		{"UsesInternal", 2, 1, 0},
+		{"usesExternal", 1, 2, 1},
+		{"usesBoth", 2, 1, 0},
+		{"Wrapper", 3, 1, 0},
+		{"renderer", 1, 3, 0},
+		{"Untouched", 1, 1, 0},
+		{"usesRequire", 2, 1, 1},
 	}
 	for _, c := range cases {
 		t.Run(c.unit, func(t *testing.T) {
 			u := unitNamed(t, res, c.unit)
 			requireCount(t, u, config.MetricInternalCoupling, c.internal)
 			requireCount(t, u, config.MetricExternalCoupling, c.external)
+			requireCount(t, u, config.MetricStdlibCoupling, c.stdlib)
 		})
 	}
 }
@@ -44,6 +45,30 @@ func TestCoupling(t *testing.T) {
 func TestCouplingInJSX(t *testing.T) {
 	res := analyzeFixture(t, "component.tsx")
 	requireCount(t, unitNamed(t, res, "Panel"), config.MetricInternalCoupling, 1)
+}
+
+// TestClassify pins the precedence between the three coupling metrics: a
+// configured internal prefix wins over a Node.js built-in name.
+func TestClassify(t *testing.T) {
+	cases := []struct {
+		spec string
+		want config.MetricID
+	}{
+		{"./repo", config.MetricInternalCoupling},
+		{"@app/users", config.MetricInternalCoupling},
+		{"path", config.MetricInternalCoupling},
+		{"path/posix", config.MetricInternalCoupling},
+		{"node:fs/promises", config.MetricStdlibCoupling},
+		{"fs", config.MetricStdlibCoupling},
+		{"lodash/fp", config.MetricExternalCoupling},
+		{"node-fetch", config.MetricExternalCoupling},
+	}
+	prefixes := []string{appPrefix, "path"}
+	for _, c := range cases {
+		t.Run(c.spec, func(t *testing.T) {
+			require.Equal(t, c.want, classify(c.spec, prefixes))
+		})
+	}
 }
 
 // TestIsInternal covers the specifier classification on its own.

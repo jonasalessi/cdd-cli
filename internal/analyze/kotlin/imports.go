@@ -1,17 +1,32 @@
 package kotlin
 
 import (
+	"strings"
+
 	ts "github.com/tree-sitter/go-tree-sitter"
 
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/jvm"
 	"github.com/jonasalessi/cdd-cli/internal/analyze/internal/treesitter"
 )
 
+// stdlibPrefix is the package tree the language's own standard library
+// occupies. The trailing dot is what keeps the kotlinx tree out: coroutines
+// and serialization ship and version apart from the language, so coupling to
+// them is coupling to a library.
+const stdlibPrefix = "kotlin."
+
+// isStdlib reports whether a qualified path names a standard-library
+// package. A Kotlin file stands on two platforms at once: the language's own
+// library and the JDK it runs on.
+func isStdlib(path string) bool {
+	return strings.HasPrefix(path, stdlibPrefix) || jvm.IsJDK(path)
+}
+
 // modules returns the modules imported by the file, in source order
 // (FR-7, FR-8). The walk reads the path, the alias and the star out of the
-// grammar; jvm.Imports holds what they mean.
+// grammar; jvm.Imports holds what they mean, the standard library included.
 func modules(g *grammar, root *ts.Node, src []byte, prefixes []string) []jvm.Module {
-	imports := jvm.NewImports(prefixes)
+	imports := jvm.NewImports(prefixes, isStdlib)
 	for _, child := range treesitter.NamedChildren(root) {
 		n := child
 		if g.kindOf(&n) != kindImport {
@@ -76,7 +91,7 @@ func (c *counter) countCoupling(mods []jvm.Module) {
 	for i := range mods {
 		m := &mods[i]
 		if m.UsedBy(c.refs) {
-			c.chargeSpan(m.Metric(), m.At)
+			c.chargeSpan(m.Metric, m.At)
 		}
 	}
 }

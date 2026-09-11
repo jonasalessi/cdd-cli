@@ -10,7 +10,7 @@ import (
 func TestMetrics(t *testing.T) {
 	want := []MetricID{
 		"code_branch", "condition", "exception_handling", "internal_coupling",
-		"external_coupling", "inheritance", "local_variable", "lambda",
+		"external_coupling", "stdlib_coupling", "inheritance", "local_variable", "lambda",
 	}
 	assert.Equal(t, want, Metrics())
 	for _, m := range want {
@@ -26,6 +26,7 @@ func TestDefaultWeight(t *testing.T) {
 		"exception_handling": 1.0,
 		"internal_coupling":  1.0,
 		"external_coupling":  0.5,
+		"stdlib_coupling":    0.5,
 		"inheritance":        1.0,
 		"local_variable":     0.5,
 		"lambda":             1.0,
