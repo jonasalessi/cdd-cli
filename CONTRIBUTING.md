@@ -106,11 +106,11 @@ kept by hand; step 4 lists them.
    {Spec: rust.Spec()},
    ```
 
-   A language may ship with a spec and no analyzer, as `go` does today:
-   `cdd init` still configures it but warns that no analyzer exists
-   yet, and `cdd check` reports it as an error rather than counting zero
-   ICPs. Set `NewAnalyzer` on the same line once the analyzer exists;
-   the next section describes how to write one.
+   A language may ship with a spec and no analyzer: `cdd init` still
+   configures it but warns that no analyzer exists yet, and `cdd check`
+   reports it as an error rather than counting zero ICPs. Set
+   `NewAnalyzer` on the same line once the analyzer exists; the next
+   section describes how to write one.
 
 3. Run `make test` and `make lint`. The registry tests fail naming the
    directory if the line is missing, naming the id if the directory is
@@ -137,12 +137,27 @@ in each language package. The node-kind table, the metric rules and the
 unit rules stay there too: copy the shape of
 `internal/analyze/kotlin/parser.go`, not its values.
 
+An analyzer is not required to use tree-sitter. `internal/analyze/golang`
+parses with `go/parser` from the standard library, which pins no grammar
+and adds nothing to the binary. It keeps the same file layout as the other
+three — `analyzer.go`, `units.go`, `metrics.go`, `imports.go`,
+`stdlib.go` — implements the same `analyze.Analyzer` contract and produces
+the same `Occurrence` spans, but it has no `parser.go`, no
+`TestGrammarResolvesEveryKind` and no `io.Closer`, and it reuses only the
+grammar-agnostic `treesitter.SortOccurrences` and `treesitter.Span`.
+What the rest of this section says about grammars — the resolve-by-name
+test and the pins in `go.mod` — applies to a tree-sitter analyzer alone.
+
 An analyzer also decides which of its imports are the standard library, and
 it does so with a predicate it hands to the classifier it shares:
 `jvm.NewImports(prefixes, stdlib)` for the JVM languages, its own `classify`
-for TypeScript. The list that predicate reads lives in the language package's
-`stdlib.go`, except for the JDK table Java and Kotlin share, which lives in
-`internal/analyze/internal/jvm/stdlib.go`. `internal/analyze/*/stdlib.go` is
+for TypeScript and for Go. The list that predicate reads lives in the
+language package's `stdlib.go`, except for the JDK table Java and Kotlin
+share, which lives in `internal/analyze/internal/jvm/stdlib.go`; Go needs
+no list at all, and `internal/analyze/golang/stdlib.go` holds the rule
+instead — an import path whose first element carries no dot is resolved
+against GOROOT, so a package added next release classifies correctly the
+first time it is imported. `internal/analyze/*/stdlib.go` is
 exempt from the literal check the way `spec.go` is, because module names such
 as Node's `console` collide with vocabulary ids. A configured project prefix
 always wins over the standard library, so a project that lists `java` or

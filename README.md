@@ -44,7 +44,9 @@ and Java analyzers embed Tree-sitter through cgo, so you need
 The grammar parse tables are compiled into the binary, which makes it a few
 megabytes larger than a pure-Go build; the Kotlin table adds about 3.5 MB
 on top of the two TypeScript ones, and the Java table about 0.5 MB on top
-of that.
+of that. The Go analyzer is the exception: it reads `go/parser` from the
+standard library, so it pins no grammar, needs no cgo and adds nothing at
+all to the binary.
 
 Or from a clone:
 
@@ -83,8 +85,8 @@ With no flags it asks one question at a time.
 4. The limit itself. Anything outside the band prints a warning and is still
    accepted, so pick 6 if the team wants 6.
 5. Which metrics to count, three or more per language. `init` hides the ones
-   an analyzer cannot see, which is why Go never offers `exception_handling`
-   or `inheritance`.
+   an analyzer cannot see, which is why Go never offers
+   `exception_handling`.
 6. Whether to edit the default weights, which package prefixes count as
    internal, and whether to skip tests and generated code. The defaults suit
    most projects.
@@ -148,8 +150,8 @@ Created cdd.config.yaml — languages: go, typescript · project: legacy · limi
 | `exception_handling` | 1.0 | not Go | `try` / `catch` / `finally` blocks |
 | `internal_coupling` | 1.0 | all | References to types that belong to this project |
 | `external_coupling` | 0.5 | all | Framework and third-party types |
-| `stdlib_coupling` | 0.5 | all | Standard library types: JDK packages in Java and Kotlin, `kotlin.*` in Kotlin, Node.js built-in modules in TypeScript. Off by default |
-| `inheritance` | 1.0 | not Go | `extends` / `implements`, counted per level |
+| `stdlib_coupling` | 0.5 | all | Standard library types: JDK packages in Java and Kotlin, `kotlin.*` in Kotlin, Node.js built-in modules in TypeScript, the Go standard library by import path. Off by default |
+| `inheritance` | 1.0 | all | `extends` / `implements`, counted per level; embedded structs and interfaces in Go |
 | `local_variable` | 0.5 | all | Locals and fields. Off by default |
 | `lambda` | 1.0 | all | Lambdas, method references, func literals. Off by default |
 
@@ -301,9 +303,8 @@ reports their violations and says they are not enforced.
 
 #### Language support
 
-TypeScript, Kotlin and Java have analyzers. Go is the one language `init`
-still configures without one, and `check` stops with `no analyzer for go
-yet` rather than reporting zero ICPs for files it cannot read.
+All four configurable languages have an analyzer: TypeScript, Kotlin, Java
+and Go.
 
 In TypeScript an import is charged to `internal_coupling` when it is relative
 or sits under one of the configured module prefixes, to `stdlib_coupling`
@@ -395,6 +396,77 @@ Known limitations of the Java analyzer:
 - A `switch` arm made of labels alone, with no statement after them at all,
   is not counted: the arm is charged where its statements are, and such an
   arm has none.
+
+Go counts the same constructs again, so a repository that measures a Go
+service and a TypeScript front end reads as one report. A unit is a
+top-level type with every method billed to it, wherever in the file the
+method is written, or a top-level function with no receiver; the methods
+of a type another file declares form one `methods` unit per file, which
+applies file by file the remedy [docs/cdd.md](docs/cdd.md) section 5 gives
+for a type split across files. Nothing nested is a unit, and the kind a
+unit reports is what a reader sees at the declaration: `struct`,
+`interface`, `type`, `func` or `methods`. An `if` is a branch and so is a
+plain `else`, an `else if` charging itself rather than its parent; each
+`case` of a `switch` or a type switch and each `case` of a `select` is one
+branch however many values it lists, while `default` is free; every `for`,
+in all four of its shapes, and every `range` is one. `&&` and `||` count
+one per clause, flattened through parentheses and `!`, while the bitwise
+`&`, `|`, `^` and `&^` are arithmetic on bits and count nothing. Embedding is Go's
+inheritance: an embedded struct field and an embedded interface are one
+level each, while a type set — `~string`, or an `A | B` union of terms —
+constrains what may instantiate a parameter and is not a supertype to
+follow. Local variables count per name: the fields of every struct in the
+unit, anonymous ones included, the names of a `var` or a `const`, the new
+names of a `:=`, so `z, err := split(y)` charges `err` alone when `z`
+already exists, and the non-blank bindings of a `range`. Every func
+literal is a lambda, the one behind a `go` or a `defer` included. An
+import is charged to each unit that qualifies something by the name it
+binds — its alias, or the name goimports would assume for the path, which
+reads `gopkg.in/yaml.v3` as `yaml` and `github.com/jackc/pgx/v5` as `pgx`
+— so a parameter named after a package shadows it and costs nothing,
+while a `.` or `_` import binds no name a reference can carry and is
+charged to every unit of the file. It counts as `internal_coupling` when
+it sits under one of the configured prefixes or under the module path in
+`go.mod`, as `stdlib_coupling` when the first element of the path holds no
+dot, which is the rule the go command itself resolves against GOROOT, and
+as `external_coupling` otherwise, so `golang.org/x/...` is a third-party
+dependency like any other. Only `.go` files are read.
+
+Known limitations of the Go analyzer:
+
+- Top-level `var` and `const` declarations are not units, so everything
+  they hold is invisible: a func literal assigned to a package-level
+  variable is no lambda, and an import only such a declaration uses is
+  charged nowhere. It is the hole a top-level `val` leaves in Kotlin and a
+  compact source file leaves in Java.
+- A method value (`l.Wire`) and a method expression (`Lambdas.Wire`) are
+  not lambdas. Without types, a selector that yields a function cannot be
+  told from a field access, and guessing from capitalisation would be a
+  heuristic rather than a rule.
+- An import whose package clause disagrees with the name assumed for its
+  path, which is rare and usually written with an alias anyway, matches no
+  qualifier and is charged to no unit at all — the same outcome as an
+  unused import, rather than a charge landing on the wrong unit.
+- `import "C"` counts as standard library. The cgo pseudo-package holds no
+  dot, so the rule above resolves it like `fmt`.
+- Parameters, receivers, named results and the `v` of
+  `switch v := x.(type)` are not local variables. A signature is a
+  contract rather than a temporary to hold in mind, and the type-switch
+  guard is Go's pattern variable, which Java does not count either.
+- A generated file — one carrying the `// Code generated … DO NOT EDIT.`
+  line the toolchain defines — yields no units and no warning. Counting a
+  bundled `.pb.go` would drown every hand-written unit in the report.
+- `_test.go` files and `vendor/**` are excluded by default. Drop them from
+  `exclude` to measure them.
+- `exception_handling` never applies. Go has no handler construct:
+  `if err != nil` is a branch and nothing more, and `defer`, `recover` and
+  `panic` are worth nothing.
+- Same-package references need no import and are invisible to a per-file
+  analyzer, so they add no coupling. Listing the module in
+  `internal_coupling.packages` does not change that.
+- With `--explain`, the occurrence of an `else` spans its block rather
+  than the `else` keyword, because `go/ast` keeps no position for the
+  keyword.
 
 ## Support
 
