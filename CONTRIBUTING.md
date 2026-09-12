@@ -48,15 +48,15 @@ assistant helped with the change.
 Follow [Effective Go](https://go.dev/doc/effective_go). The `pre-commit`
 hook enforces the mechanical part with `gofmt` and `golangci-lint`.
 
-Before opening a pull request, run all four and make sure the last one
-leaves no diff:
+Before opening a pull request, run the definition of done:
 
 ```sh
-make build
-make test
-make lint
-make fmt
+make check
 ```
+
+It builds, runs the tests with the race detector, lints, and fails if any Go
+file is not gofmt-clean. The four targets it chains (`build`, `test`, `lint`,
+`fmt`) also run on their own.
 
 `make lint` also runs `make check-literals`, which fails if a language id,
 metric id or mode is spelled out as a string outside the places listed in
@@ -112,7 +112,7 @@ kept by hand; step 4 lists them.
    `NewAnalyzer` on the same line once the analyzer exists; the next
    section describes how to write one.
 
-3. Run `make test` and `make lint`. The registry tests fail naming the
+3. Run `make check`. The registry tests fail naming the
    directory if the line is missing, naming the id if the directory is
    missing, and naming the field if the spec is incomplete. The literal
    check fails if the id leaked outside `spec.go`.
@@ -123,63 +123,18 @@ kept by hand; step 4 lists them.
 
 ### Writing an analyzer
 
-An analyzer implements `analyze.Analyzer` and is registered by setting
-`NewAnalyzer` on the language's line in `languages.go`. The TypeScript,
-Kotlin and Java analyzers are built on tree-sitter; the grammar-agnostic
-mechanics they share (the parse budget, the cursor walk, child accessors,
-source ranges, syntax-error reporting and the occurrence sort) live in
-`internal/analyze/internal/treesitter`. Rules that belong to a platform
-rather than to one language live beside them:
-`internal/analyze/internal/jvm` holds the package-prefix detection and the
-per-unit import attribution the Java and Kotlin analyzers share, while the
-grammar walk that reads a path, a binding and a star out of an import stays
-in each language package. The node-kind table, the metric rules and the
-unit rules stay there too: copy the shape of
-`internal/analyze/kotlin/parser.go`, not its values.
+Read the page for the decision in front of you and skip the rest:
 
-An analyzer is not required to use tree-sitter. `internal/analyze/golang`
-parses with `go/parser` from the standard library, which pins no grammar
-and adds nothing to the binary. It keeps the same file layout as the other
-three — `analyzer.go`, `units.go`, `metrics.go`, `imports.go`,
-`stdlib.go` — implements the same `analyze.Analyzer` contract and produces
-the same `Occurrence` spans, but it has no `parser.go`, no
-`TestGrammarResolvesEveryKind` and no `io.Closer`, and it reuses only the
-grammar-agnostic `treesitter.SortOccurrences` and `treesitter.Span`.
-What the rest of this section says about grammars — the resolve-by-name
-test and the pins in `go.mod` — applies to a tree-sitter analyzer alone.
+- [docs/contributing/analyzer-layout.md](docs/contributing/analyzer-layout.md):
+  the `analyze.Analyzer` contract, the file layout every analyzer shares,
+  what lives in the shared internals and what stays in the language package,
+  and how to parse without tree-sitter.
+- [docs/contributing/tree-sitter-grammars.md](docs/contributing/tree-sitter-grammars.md):
+  building the grammar once, the resolve-by-name test, the version pins and
+  where each grammar comes from. Tree-sitter analyzers only.
+- [docs/contributing/stdlib-classification.md](docs/contributing/stdlib-classification.md):
+  which imports count as the standard library and where that knowledge lives.
 
-An analyzer also decides which of its imports are the standard library, and
-it does so with a predicate it hands to the classifier it shares:
-`jvm.NewImports(prefixes, stdlib)` for the JVM languages, its own `classify`
-for TypeScript and for Go. The list that predicate reads lives in the
-language package's `stdlib.go`, except for the JDK table Java and Kotlin
-share, which lives in `internal/analyze/internal/jvm/stdlib.go`; Go needs
-no list at all, and `internal/analyze/golang/stdlib.go` holds the rule
-instead — an import path whose first element carries no dot is resolved
-against GOROOT, so a package added next release classifies correctly the
-first time it is imported. `internal/analyze/*/stdlib.go` is
-exempt from the literal check the way `spec.go` is, because module names such
-as Node's `console` collide with vocabulary ids. A configured project prefix
-always wins over the standard library, so a project that lists `java` or
-`path` among its own packages keeps counting it as internal coupling.
-
-Each language package builds its grammar once, at package level, and every
-analyzer instance shares it. Every node kind, field and anonymous token the
-analyzer relies on is resolved by name at that point and pinned by a test
-(`TestGrammarResolvesEveryKind` and friends), so a grammar bump that renames
-something fails loudly in `make test` instead of silently counting zero.
-When you add a kind, add it to that test as well.
-
-Every grammar and the `go-tree-sitter` binding are pinned in `go.mod`. The
-binding is pinned to `v0.24.0` and must not be bumped without re-running
-every analyzer's tests.
-
-### Grammar provenance
-
-The TypeScript grammar comes from the `tree-sitter/` GitHub organisation,
-and `tree-sitter/tree-sitter-java` comes from the same place, so both are
-maintained where the parser generator itself is. The Kotlin grammar, `tree-sitter-grammars/tree-sitter-kotlin`, comes from
-the community collective that maintains a fork of `fwcd/tree-sitter-kotlin`;
-the original `fwcd` grammar is one release behind and less active, which is
-why the fork was chosen. Depending on a grammar from outside `tree-sitter/`
-is an accepted risk, and the resolve-by-name test above is the mitigation.
+Start from the closest existing analyzer and copy its shape, not its values:
+Kotlin or Java for a tree-sitter grammar, Go for a parser from the standard
+library.
