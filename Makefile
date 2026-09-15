@@ -1,4 +1,4 @@
-.PHONY: setup build test cover lint fmt check-literals
+.PHONY: setup check build test cover lint fmt check-literals
 
 # The TypeScript analyzer embeds Tree-sitter through cgo; a C compiler is required.
 export CGO_ENABLED = 1
@@ -18,6 +18,14 @@ setup:
 	git config core.hooksPath .githooks
 	chmod +x .githooks/*
 	@echo "Git hooks installed from .githooks/"
+
+## check: the definition of done — build, test, lint, and every Go file already gofmt-clean
+check: build test lint
+	@unformatted=$$(gofmt -l .); if [ -n "$$unformatted" ]; then \
+		echo "gofmt would change these files; run make fmt:"; \
+		echo "$$unformatted"; \
+		exit 1; \
+	fi
 
 ## build: compile the cdd binary into bin/ with version info injected
 build:

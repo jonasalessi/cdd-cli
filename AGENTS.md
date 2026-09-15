@@ -1,27 +1,53 @@
-# Project Overview
+# cdd-cli
+
 CLI (`cdd`) that measures code quality with Cognitive-Driven Development (CDD)
-and Intrinsic Complexity Points (ICPs). Written in Go.
+and Intrinsic Complexity Points (ICPs). Written in Go, idiomatic per
+[Effective Go](https://go.dev/doc/effective_go).
 
-## Critical Rules
-- Follow strict the "Effective Go" for writing clear, idiomatic Go code.
-- Plan tests around command behavior and package contracts: use unit tests for pure logic, and integration tests for CLI boundaries such as arguments, flags, stdin/stdout/stderr, exit codes, filesystem access, and interaction between internal packages. Keep tests deterministic, avoid excessive mocking, and verify observable CLI behavior rather than internal function calls.
-- Apply Single Responsibility at the package and type level: each package should represent one clear capability, and each struct or function should have one clear reason to change. Prefer small focused interfaces, short functions, and composition over large “manager” or “service” types that mix parsing, validation, filesystem access, formatting, and CLI orchestration.
-- Commit when you reach a logical checkpoint that you could explain in one sentence. If you are implementing a task and it contains FR then commit by FR.
-- When adding support for a new language, follow the "Adding a language" section in CONTRIBUTING.md.
+## Where to look
 
-## Commit style
-- Format <type>: <description>; prefixes feat|fix|refactor|perf|docs|test|build|ci.
-- One commit per remediation batch.
-- If a pre-commit hook fails, do not git commit --amend, fix the issue and create a new commit.
-- Do not add Co-Author
+Read only the document the task needs:
 
-## Definition of Done (MANDATORY)
-IMPORTANT: NEVER report a feature, change, or fix as done — and NEVER commit —
-until ALL of these pass:
-- `make build`
-- `make test`
-- `make lint`
-- `make fmt` (leaves no diff)
+- `docs/cdd.md` when changing what a metric counts or how a limit is judged.
+- `docs/languages.md` for what each analyzer counts and its known limitations.
+- `docs/editor-integration.md` when changing output that the IntelliJ or
+  VS Code plugin parses; it is a contract.
+- `CONTRIBUTING.md` for the "Adding a language" checklist; it links to one
+  page per subtopic under `docs/contributing/`.
+- `docs/features/<nn>-<name>/task.md` is the spec when a task cites `FR-n`;
+  the `test-cases.md` beside it lists the acceptance cases.
 
-If any step fails, fix the problem and re-run every step. No exceptions,
-even for "trivial" changes.
+## Rules the tools cannot check
+
+- A language is one directory, `internal/analyze/<id>/`, plus one line in
+  `internal/languages/languages.go`. No other package may know a language
+  exists.
+- Language, metric, mode and format ids are spelled out only in
+  `vocabulary.go`, `spec.go` and `stdlib.go`; `make check-literals` fails
+  otherwise, so reach for the constants instead of quoting the check.
+- The `go-tree-sitter` binding pinned in `go.mod` is not bumped without
+  re-running every analyzer's tests.
+- Two lists are maintained by hand when a language changes: the
+  `--languages` row in the README flag table and the language comments in
+  `internal/config/templates/cdd.config.yaml.tmpl`.
+- Prefer integration tests at the CLI boundary (flags, stdin/stdout/stderr,
+  exit codes, filesystem) over mocks; unit tests cover pure logic.
+
+## What you may do without asking
+
+- Run `make test`, `make lint` and `make check` as often as you like, fix
+  what fails, and rerun. Tests use temp dirs and touch no network.
+- The first `make lint` downloads golangci-lint into `bin/`; that is
+  expected.
+- Regenerate the report golden files with `go test ./internal/report -update`
+  after an intended output change, then review the diff.
+- The pre-commit hook runs gofmt and golangci-lint with `--fix` and re-stages
+  what it fixed. If a hook rejects a commit, fix the issue and create a new
+  commit; never `git commit --amend` around it.
+
+## Definition of done
+
+A change is done when `make check` passes and it is committed. Commit at
+each checkpoint you can describe in one sentence, with the message format
+`<type>: <description>` (types: feat, fix, refactor, perf, docs, test, build,
+ci). When a task is organised by `FR-n`, commit one FR at a time.
